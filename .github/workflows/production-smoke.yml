@@ -1,0 +1,66 @@
+name: production-smoke
+
+on:
+  push:
+    branches:
+      - production-smoke
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - name: Check production DB and Morin
+        run: |
+          python - <<'PY'
+          import json, uuid, httpx
+
+          base = "https://fantasy-accepted-production.up.railway.app"
+          health = httpx.get(base + "/api/health", timeout=20)
+          health.raise_for_status()
+          h = health.json()
+          assert h.get("database") == "postgres", h
+          assert h.get("morin_configured") is True, h
+
+          nickname = "__CI_SMOKE_TEST__-" + uuid.uuid4().hex[:8]
+          session = httpx.post(
+              base + "/api/session",
+              json={
+                  "nickname": nickname,
+                  "age": 30,
+                  "gender": "female",
+                  "region": "center",
+                  "marital_status": "single",
+                  "relationship_status": "single",
+                  "adult_confirm": True,
+              },
+              timeout=20,
+          )
+          session.raise_for_status()
+          token = session.json()["token"]
+
+          response = httpx.post(
+              base + "/api/morin/structure",
+              headers={"Authorization": "Bearer " + token},
+              json={
+                  "text": "אני רוצה פנטזיה של טיול לילי רומנטי בעיר עם אדם נוסף בגילי, קודם שיחה והיכרות ואז אולי מפגש."
+              },
+              timeout=90,
+          )
+          response.raise_for_status()
+          data = response.json()
+          assert not data.get("blocked_reason"), data
+          assert data.get("title"), data
+          assert data.get("description"), data
+          assert isinstance(data.get("roles"), list) and data["roles"], data
+          print(json.dumps({
+              "ok": True,
+              "database": h["database"],
+              "morin_configured": h["morin_configured"],
+              "title_present": bool(data.get("title")),
+              "roles": len(data["roles"]),
+          }, ensure_ascii=False))
+          PY

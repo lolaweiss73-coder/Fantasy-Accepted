@@ -16,22 +16,13 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from storage import DATA_DIR, INTEGRITY_ERRORS, backend_name, db
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("FANTASY_DATA_DIR", str(BASE_DIR))).expanduser().resolve()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "fantasy_accepted.db"
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Fantasy Accepted", version="0.1.0")
+app = FastAPI(title="Fantasy Accepted", version="0.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-def db() -> sqlite3.Connection:
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys=ON")
-    return con
 
 
 def now() -> float:
@@ -295,7 +286,7 @@ def role_eligible(role: sqlite3.Row, person: sqlite3.Row) -> tuple[bool, list[st
 
 def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.Row | None = None) -> dict[str, Any]:
     owner = con.execute("SELECT * FROM identities WHERE id=?", (row["owner_id"],)).fetchone()
-    roles = con.execute("SELECT * FROM roles WHERE fantasy_id=? ORDER BY rowid", (row["id"],)).fetchall()
+    roles = con.execute("SELECT * FROM roles WHERE fantasy_id=? ORDER BY id", (row["id"],)).fetchall()
     role_items = []
     for role in roles:
         item = dict(role)
@@ -329,12 +320,18 @@ def home():
 
 @app.get("/api/health")
 def health():
+    gateway_ready = bool(os.environ.get("MORIN_GATEWAY_URL") and os.environ.get("MORIN_GATEWAY_TOKEN"))
+    direct_ready = bool(
+        (os.environ.get("OPENROUTER_API_KEY") and os.environ.get("MORIN_MODEL"))
+        or (os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_MODEL"))
+    )
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.1.0",
+        "version": "0.2.0",
+        "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
-        "morin_configured": bool(os.environ.get("OPENROUTER_API_KEY") and os.environ.get("MORIN_MODEL")),
+        "morin_configured": gateway_ready or direct_ready,
     }
 
 
@@ -390,7 +387,7 @@ def list_fantasies(
     viewer = current_identity(authorization)
     con = db()
     blocked_ids = {
-        r[0]
+        r["blocked_id"]
         for r in con.execute(
             "SELECT blocked_id FROM blocks WHERE blocker_id=? UNION SELECT blocker_id FROM blocks WHERE blocked_id=?",
             (viewer["id"], viewer["id"]),
@@ -533,7 +530,7 @@ def apply_to_fantasy(
             (app_id, fantasy_id, info.role_id, applicant["id"], info.message.strip(), ts, ts),
         )
         con.commit()
-    except sqlite3.IntegrityError:
+    except INTEGRITY_ERRORS:
         con.close()
         raise HTTPException(409, "כבר הוגשה מועמדות לתפקיד הזה")
     con.close()
@@ -678,7 +675,7 @@ def block(identity_id: str, authorization: str | None = Header(default=None)):
         raise HTTPException(400, "אי אפשר לחסום את עצמך")
     con = db()
     con.execute(
-        "INSERT OR IGNORE INTO blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?)",
+        "INSERT INTO blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?) ON CONFLICT(blocker_id,blocked_id) DO NOTHING",
         (person["id"], identity_id, now()),
     )
     con.commit()
@@ -713,40 +710,76 @@ def report(info: ReportCreate, authorization: str | None = Header(default=None))
 @app.post("/api/morin/structure")
 async def morin_structure(info: MorinStructureRequest, authorization: str | None = Header(default=None)):
     person = current_identity(authorization)
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    model = os.environ.get("MORIN_MODEL")
-    if not api_key or not model:
-        raise HTTPException(503, "מורין עדיין לא מחוברת לספק AI באתר")
+    ensure_adult_only_text(info.text)
 
-    system = (
-        "You are Morin inside Fantasy Accepted. Convert an adult user's free-text fantasy into neutral structured metadata. "
-        "All participants on this service must be 18+. Never invent missing ages, genders, locations, or consent conditions. "
-        "If the text appears to request sexual involvement of a minor, return JSON with blocked_reason and no fantasy fields. "
-        "Return strict JSON only with keys: title, description, mode, tags, roles, blocked_reason. "
-        "roles is an array of {name, description, capacity, min_age, max_age, allowed_genders, region}. "
-        "Use null or empty arrays for unknown values; min_age must never be below 18."
-    )
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": info.text},
-        ],
-        "temperature": 0.2,
-    }
-    async with httpx.AsyncClient(timeout=45) as client:
-        response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
+    gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
+    gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
+
+    if gateway_url and gateway_token:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{gateway_url}/structure",
+                headers={
+                    "Authorization": f"Bearer {gateway_token}",
+                    "Content-Type": "application/json",
+                },
+                json={"text": info.text},
+            )
+        if response.status_code >= 400:
+            raise HTTPException(502, "מורין לא הצליחה לעבד את הפנטזיה כרגע")
+        result = response.json()
+    else:
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        model = os.environ.get("MORIN_MODEL")
+        if not api_key or not model:
+            raise HTTPException(503, "מורין עדיין לא מחוברת לספק AI באתר")
+
+        system = (
+            "You are Morin inside Fantasy Accepted. Convert an adult user's free-text fantasy into neutral structured metadata. "
+            "All participants on this service must be 18+. Never invent missing ages, genders, locations, or consent conditions. "
+            "If the text appears to request sexual involvement of a minor, return JSON with blocked_reason and no fantasy fields. "
+            "Return strict JSON only with keys: title, description, mode, tags, roles, blocked_reason. "
+            "roles is an array of {name, description, capacity, min_age, max_age, allowed_genders, region}. "
+            "Use null or empty arrays for unknown values; min_age must never be below 18."
         )
-    if response.status_code >= 400:
-        raise HTTPException(502, "ספק ה-AI לא החזיר תשובה תקינה")
-    content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-    try:
-        result = json.loads(content)
-    except json.JSONDecodeError:
-        raise HTTPException(502, "מורין החזירה מבנה שלא ניתן לקרוא")
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": info.text},
+            ],
+            "temperature": 0.2,
+        }
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+        if response.status_code >= 400:
+            raise HTTPException(502, "ספק ה-AI לא החזיר תשובה תקינה")
+        content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            raise HTTPException(502, "מורין החזירה מבנה שלא ניתן לקרוא")
+
+    if result.get("blocked_reason"):
+        return result
+
+    roles = result.get("roles") or []
+    if not isinstance(roles, list):
+        roles = []
+        result["roles"] = roles
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        min_age = role.get("min_age")
+        role["min_age"] = 18 if min_age is None else max(18, int(min_age))
+        max_age = role.get("max_age")
+        role["max_age"] = 99 if max_age is None else max(role["min_age"], int(max_age))
+        role["capacity"] = min(20, max(1, int(role.get("capacity") or 1)))
+
     con = db()
     con.execute(
         "INSERT INTO morin_messages (id,identity_id,role,text,created_at) VALUES (?,?,?,?,?)",

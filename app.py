@@ -580,7 +580,7 @@ def decide_application(
     elif row["owner_id"] != owner["id"]:
         con.close()
         raise HTTPException(403, "אין הרשאה לעדכן את המועמדות")
-    con.execute("UPDATE ipplications SET status=?,updated_at=? WHERE id=?", (info.status, now(), application_id))
+    con.execute("UPDATE applications SET status=?,updated_at=? WHERE id=?", (info.status, now(), application_id))
     con.commit()
     con.close()
     return {"ok": True, "status": info.status}

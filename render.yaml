@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: fantasy-accepted
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: FANTASY_DATA_DIR
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: MORIN_MODEL
+        sync: false

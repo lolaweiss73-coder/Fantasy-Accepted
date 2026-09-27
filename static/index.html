@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#120f1f">
+  <title>Fantasy Accepted</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <button id="menuBtn" class="icon-btn mobile-only" aria-label="תפריט">☰</button>
+      <div>
+        <div class="brand">FANTASY ACCEPTED</div>
+        <div class="tagline">לפנטז. להתחבר. בהסכמה.</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="meBadge" class="user-badge hidden"></span>
+      <button id="dndBtn" class="ghost hidden">בהפסקה: כבוי</button>
+      <button id="logoutBtn" class="ghost hidden">יציאה</button>
+    </div>
+  </header>
+
+  <main id="app" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <button class="nav-btn active" data-view="feed">✨ פנטזיות</button>
+      <button class="nav-btn" data-view="create">＋ יצירת פנטזיה</button>
+      <button class="nav-btn" data-view="inbox">✉️ הודעות</button>
+      <div class="sidebar-spacer"></div>
+      <button id="morinOpen" class="morin-nav">◉ מורין</button>
+      <div class="ecosystem-note">חלק מאקוסיסטם No Limit</div>
+    </aside>
+
+    <section class="content">
+      <div id="feedView" class="view active-view">
+        <div class="hero-card">
+          <div>
+            <div class="eyebrow">NAME IT. MATCH IT. MAKE IT REAL.</div>
+            <h1>מה הפנטזיה שלך?</h1>
+            <p>תארו מה אתם מחפשים, הגדירו את התפקידים והגבולות, ותנו להתאמה להתחיל מהפנטזיה עצמה.</p>
+          </div>
+          <button id="heroCreate" class="primary large">פרסום פנטזיה</button>
+        </div>
+
+        <div class="filters">
+          <input id="searchInput" placeholder="חיפוש בפנטזיות…">
+          <input id="regionFilter" placeholder="אזור">
+          <button id="refreshBtn" class="ghost">רענון</button>
+        </div>
+        <div id="feedEmpty" class="empty hidden">עדיין אין פנטזיות שמתאימות לחיפוש.</div>
+        <div id="fantasyFeed" class="fantasy-grid"></div>
+      </div>
+
+      <div id="createView" class="view">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">CREATE</div>
+            <h1>יצירת פנטזיה</h1>
+          </div>
+          <button id="morinDraftBtn" class="morin-outline">ספרו למורין במקום למלא טופס</button>
+        </div>
+
+        <form id="fantasyForm" class="form-card">
+          <label>כותרת
+            <input id="fantasyTitle" maxlength="120" required placeholder="כמה מילים שמסבירות את הרעיון">
+          </label>
+          <label>תיאור
+            <textarea id="fantasyDescription" rows="7" maxlength="6000" required placeholder="תארו את הפנטזיה בדרך שלכם"></textarea>
+          </label>
+          <div class="form-grid three">
+            <label>אופי
+              <select id="fantasyMode">
+                <option value="either">אונליין או מפגש</option>
+                <option value="online">אונליין</option>
+                <option value="meeting">מפגש</option>
+              </select>
+            </label>
+            <label>אזור כללי
+              <input id="fantasyRegion" maxlength="80" placeholder="למשל מרכז">
+            </label>
+            <label>חשיפה
+              <select id="fantasyVisibility">
+                <option value="public">פומבית</option>
+                <option value="limited">מוגבלת</option>
+                <option value="private">פרטית</option>
+              </select>
+            </label>
+          </div>
+          <label>תגיות
+            <input id="fantasyTags" placeholder="מופרדות בפסיקים">
+          </label>
+
+          <div class="role-section">
+            <div class="role-head">
+              <div>
+                <h2>התפקידים שחסרים</h2>
+                <p class="muted">לפחות תפקיד אחד. תנאי חובה נבדקים בשרת לפני שמועמדות מתקבלת.</p>
+              </div>
+              <button type="button" id="addRoleBtn" class="ghost">＋ תפקיד</button>
+            </div>
+            <div id="rolesEditor"></div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="primary large">פרסום</button>
+            <span id="createStatus" class="status-text"></span>
+          </div>
+        </form>
+      </div>
+
+      <div id="inboxView" class="view">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">PRIVATE</div>
+            <h1>הודעות</h1>
+          </div>
+        </div>
+        <div class="inbox-layout">
+          <div id="inboxList" class="inbox-list"></div>
+          <div class="conversation-card">
+            <div id="conversationTitle" class="conversation-title">בחרו שיחה</div>
+            <div id="conversationMessages" class="conversation-messages"></div>
+            <div id="composerWrap" class="composer hidden">
+              <textarea id="messageText" rows="2" maxlength="3000" placeholder="כתבו הודעה…"></textarea>
+              <button id="sendMessageBtn" class="primary">שליחה</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="gate" class="overlay open">
+    <div class="modal-card gate-card">
+      <div class="eyebrow">FANTASY ACCEPTED</div>
+      <h1>לפנטז. להתחבר. בהסכמה.</h1>
+      <p class="lead">מרחב דיסקרטי לבוגרים שבו הפנטזיה היא נקודת ההתחלה.</p>
+      <div class="form-grid two">
+        <label>כינוי<input id="nickname" maxlength="40" autocomplete="nickname"></label>
+        <label>גיל<input id="age" type="number" min="18" max="120"></label>
+        <label>מגדר
+          <select id="gender">
+            <option value="">בחירה</option>
+            <option value="female">אישה</option>
+            <option value="male">גבר</option>
+            <option value="nonbinary">א-בינארי/ת</option>
+            <option value="trans_female">טרנסית</option>
+            <option value="trans_male">טרנס</option>
+            <option value="other">אחר</option>
+            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+          </select>
+        </label>
+        <label>אזור<input id="region" maxlength="80" placeholder="אזור כללי בלבד"></label>
+        <label>מצב משפחתי
+          <select id="maritalStatus">
+            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+            <option value="single">רווק/ה</option>
+            <option value="married">נשוי/אה</option>
+            <option value="divorced">גרוש/ה</option>
+            <option value="widowed">אלמן/ה</option>
+          </select>
+        </label>
+        <label>סטטוס זוגי
+          <select id="relationshipStatus">
+            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+            <option value="single">לא בזוגיות</option>
+            <option value="relationship">בזוגיות</option>
+            <option value="open">בזוגיות פתוחה</option>
+            <option value="poly">פוליאמורי/ת</option>
+          </select>
+        </label>
+      </div>
+      <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים ואני מבינ/ה שהשירות מיועד למבוגרים בלבד.</label>
+      <button id="enterBtn" class="primary large">כניסה ל־Fantasy Accepted</button>
+      <div id="gateError" class="error"></div>
+      <p class="fineprint">המיקום המוצג באתר הוא כללי בלבד. כתובת ומועד מדויקים נשארים בשיחה פרטית.</p>
+    </div>
+  </div>
+
+  <div id="fantasyModal" class="overlay">
+    <div class="modal-card wide-card">
+      <button class="close-btn" data-close="fantasyModal">×</button>
+      <div id="fantasyDetail"></div>
+    </div>
+  </div>
+
+  <div id="applicationsModal" class="overlay">
+    <div class="modal-card wide-card">
+      <button class="close-btn" data-close="applicationsModal">×</button>
+      <h2>מועמדויות</h2>
+      <div id="applicationsList"></div>
+    </div>
+  </div>
+
+  <div id="morinModal" class="overlay">
+    <div class="modal-card morin-card">
+      <button class="close-btn" data-close="morinModal">×</button>
+      <div class="morin-header">
+        <div class="morin-orb">◉</div>
+        <div><div class="eyebrow">MORIN</div><h2>ספרו לי את הפנטזיה כמו שהיא</h2></div>
+      </div>
+      <p class="muted">אני אנסה להפוך את הטקסט לטיוטה מסודרת. שום דבר לא מתפרסם לפני שתעברו עליו ותאשרו.</p>
+      <textarea id="morinText" rows="10" maxlength="12000" placeholder="אפשר פשוט לדבר חופשי כאן…"></textarea>
+      <div class="form-actions">
+        <button id="morinStructureBtn" class="primary">הפכי לטיוטה</button>
+        <span id="morinStatus" class="status-text"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/core.js" defer></script>
+  <script src="/static/feed.js" defer></script>
+  <script src="/static/create.js" defer></script>
+  <script src="/static/inbox.js" defer></script>
+</body>
+</html>

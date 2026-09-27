@@ -47,6 +47,69 @@ $('#fantasyForm').onsubmit=async(e)=>{
 
 $('#morinOpen').onclick=()=>openModal('morinModal');
 $('#morinDraftBtn').onclick=()=>openModal('morinModal');
+
+const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
+let morinRecognition=null;
+let morinListening=false;
+let morinSpeechBase='';
+let morinSpeechFinal='';
+
+function setMicState(live,message){
+  morinListening=live;
+  const button=$('#morinMicBtn'), status=$('#morinMicStatus');
+  button.classList.toggle('listening',live);
+  status.classList.toggle('live',live);
+  button.textContent=live?'⏹️ סיימתי לדבר':'🎙️ דברו אל מורין';
+  status.textContent=message;
+}
+
+if(!SpeechRecognitionAPI){
+  $('#morinMicBtn').disabled=true;
+  $('#morinMicStatus').textContent='הכתבה קולית אינה זמינה בדפדפן הזה — אפשר לכתוב כאן.';
+}else{
+  morinRecognition=new SpeechRecognitionAPI();
+  morinRecognition.lang='he-IL';
+  morinRecognition.continuous=true;
+  morinRecognition.interimResults=true;
+
+  morinRecognition.onstart=()=>setMicState(true,'מורין מקשיבה… דברו חופשי');
+  morinRecognition.onresult=(event)=>{
+    let interim='';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const transcript=event.results[i][0].transcript.trim();
+      if(event.results[i].isFinal){
+        morinSpeechFinal+=(morinSpeechFinal?' ':'')+transcript;
+      }else{
+        interim+=(interim?' ':'')+transcript;
+      }
+    }
+    $('#morinText').value=[morinSpeechBase,morinSpeechFinal,interim].filter(Boolean).join(' ').slice(0,12000);
+  };
+  morinRecognition.onerror=(event)=>{
+    const messages={
+      'not-allowed':'צריך לאשר לדפדפן גישה למיקרופון.',
+      'no-speech':'לא שמעתי דיבור. אפשר לנסות שוב.',
+      'audio-capture':'לא הצלחתי לגשת למיקרופון.',
+      'network':'שירות ההכתבה הקולית לא זמין כרגע.'
+    };
+    setMicState(false,messages[event.error]||'ההאזנה נעצרה. אפשר לנסות שוב.');
+  };
+  morinRecognition.onend=()=>{
+    if(morinListening)setMicState(false,'ההאזנה הסתיימה — אפשר להמשיך לדבר בלחיצה נוספת או לסדר את הטיוטה.');
+  };
+  $('#morinMicBtn').onclick=()=>{
+    if(morinListening){
+      morinListening=false;
+      morinRecognition.stop();
+      setMicState(false,'קיבלתי. אפשר לעבור על התמלול או לבקש ממורין לסדר אותו.');
+      return;
+    }
+    morinSpeechBase=$('#morinText').value.trim();
+    morinSpeechFinal='';
+    try{morinRecognition.start()}catch{setMicState(false,'המיקרופון כבר פעיל או לא זמין כרגע.')}
+  };
+}
+
 $('#morinStructureBtn').onclick=async()=>{
   const text=$('#morinText').value.trim(); if(text.length<10){$('#morinStatus').textContent='ספרו לי קצת יותר';return}
   $('#morinStatus').textContent='מורין מסדרת את הטיוטה…'; $('#morinStructureBtn').disabled=true;

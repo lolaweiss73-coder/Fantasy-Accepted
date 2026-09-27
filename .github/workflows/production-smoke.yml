@@ -1,5 +1,6 @@
 name: production-smoke
 # rerun after OpenRouter header fix
+# gateway deployment is now live
 
 on:
   push:

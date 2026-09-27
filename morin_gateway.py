@@ -95,7 +95,7 @@ async def call_openrouter(text: str) -> dict:
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://fantasy-accepted-production.up.railway.app",
-                "X-Title": "Fantasy Accepted — Morin",
+                "X-Title": "Fantasy Accepted - Morin",
             },
             json=payload,
         )

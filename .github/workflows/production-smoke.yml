@@ -1,4 +1,5 @@
 name: production-smoke
+# rerun after OpenRouter header fix
 
 on:
   push:

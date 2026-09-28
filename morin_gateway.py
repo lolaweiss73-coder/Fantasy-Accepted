@@ -43,6 +43,12 @@ class StructureRequest(BaseModel):
     text: str = Field(min_length=10, max_length=12000)
 
 
+class TranscriptionRequest(BaseModel):
+    audio_base64: str = Field(min_length=100, max_length=20_000_000)
+    format: str = Field(default="webm", pattern="^(webm|ogg|wav|mp3|m4a|aac|flac)$")
+    language: str = Field(default="he", min_length=2, max_length=8)
+
+
 def require_service_token(authorization: str | None) -> None:
     if not SERVICE_TOKEN:
         raise HTTPException(503, "Gateway token is not configured")
@@ -149,6 +155,43 @@ async def health():
         "model": OPENAI_MODEL if openai_client else OPENROUTER_MODEL,
         "providers": providers,
     }
+
+
+@app.post("/transcribe")
+async def transcribe(info: TranscriptionRequest, authorization: str | None = Header(default=None)):
+    require_service_token(authorization)
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(503, "Transcription provider is not configured")
+
+    payload = {
+        "model": os.environ.get("OPENROUTER_TRANSCRIBE_MODEL", "openai/whisper-large-v3"),
+        "input_audio": {
+            "data": info.audio_base64,
+            "format": info.format,
+        },
+        "language": info.language,
+        "temperature": 0,
+    }
+    async with httpx.AsyncClient(timeout=75) as client:
+        response = await client.post(
+            "https://openrouter.ai/api/v1/audio/transcriptions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://fantasy-accepted-production.up.railway.app",
+                "X-Title": "Fantasy Accepted - Morin",
+            },
+            json=payload,
+        )
+    if response.status_code >= 400:
+        print("Morin transcription failure:", response.status_code)
+        raise HTTPException(502, "Transcription provider is temporarily unavailable")
+
+    result = response.json()
+    transcript = str(result.get("text") or "").strip()
+    if not transcript:
+        raise HTTPException(502, "Transcription provider returned no text")
+    return {"text": transcript}
 
 
 @app.post("/structure")

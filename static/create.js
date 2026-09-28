@@ -48,195 +48,171 @@ $('#fantasyForm').onsubmit=async(e)=>{
 $('#morinOpen').onclick=()=>openModal('morinModal');
 $('#morinDraftBtn').onclick=()=>openModal('morinModal');
 
-const MediaRecorderAPI=window.MediaRecorder;
-let morinMediaRecorder=null;
-let morinMediaStream=null;
-let morinAudioChunks=[];
-let morinRecordingStartedAt=0;
-let morinRecordingTimer=null;
-let morinTranscribing=false;
+const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
+let morinRecognition=null;
+let morinWantsListening=false;
+let morinRecognitionActive=false;
+let morinRestartTimer=null;
+let morinBaseText='';
+let morinSegmentFinals=new Map();
+let morinLastInterim='';
 
-function normalizeTranscript(text){
+function cleanSpeech(text){
   return String(text||'').replace(/\s+/g,' ').trim();
 }
 
-function appendMorinTranscript(existing,addition){
-  const left=String(existing||'').trim();
-  const right=String(addition||'').trim();
+function appendSpeech(existing,addition){
+  const left=cleanSpeech(existing);
+  const right=cleanSpeech(addition);
   if(!right)return left;
   if(!left)return right;
 
-  const nl=normalizeTranscript(left).toLowerCase();
-  const nr=normalizeTranscript(right).toLowerCase();
+  const nl=left.toLowerCase();
+  const nr=right.toLowerCase();
   if(nl===nr || nl.endsWith(nr))return left;
-  return left+'\n'+right;
-}
 
-function preferredRecordingMime(){
-  if(!MediaRecorderAPI?.isTypeSupported)return '';
-  const choices=[
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/ogg'
-  ];
-  return choices.find(type=>MediaRecorderAPI.isTypeSupported(type))||'';
-}
-
-function formatFromMime(mime){
-  const value=String(mime||'').toLowerCase();
-  if(value.includes('ogg'))return 'ogg';
-  if(value.includes('wav'))return 'wav';
-  if(value.includes('mpeg')||value.includes('mp3'))return 'mp3';
-  if(value.includes('mp4')||value.includes('m4a'))return 'm4a';
-  if(value.includes('aac'))return 'aac';
-  if(value.includes('flac'))return 'flac';
-  return 'webm';
-}
-
-function blobToBase64(blob){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onerror=()=>reject(reader.error||new Error('audio read failed'));
-    reader.onloadend=()=>{
-      const result=String(reader.result||'');
-      resolve(result.includes(',')?result.split(',').pop():result);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-function stopMorinTracks(){
-  if(morinMediaStream){
-    for(const track of morinMediaStream.getTracks())track.stop();
+  const lw=left.split(/\s+/);
+  const rw=right.split(/\s+/);
+  const max=Math.min(12,lw.length,rw.length);
+  for(let n=max;n>=1;n--){
+    const a=lw.slice(-n).join(' ').toLowerCase();
+    const b=rw.slice(0,n).join(' ').toLowerCase();
+    if(a===b){
+      return [left,rw.slice(n).join(' ')].filter(Boolean).join(' ');
+    }
   }
-  morinMediaStream=null;
+  return left+' '+right;
 }
 
-function setMorinMicVisual(recording,message){
+function currentSegmentFinal(){
+  return [...morinSegmentFinals.keys()]
+    .sort((a,b)=>a-b)
+    .map(k=>morinSegmentFinals.get(k))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function renderSpeech(interim=''){
+  let text=appendSpeech(morinBaseText,currentSegmentFinal());
+  if(interim)text=appendSpeech(text,interim);
+  $('#morinText').value=text.slice(0,12000);
+}
+
+function commitSegment(){
+  morinBaseText=appendSpeech(morinBaseText,currentSegmentFinal());
+  morinSegmentFinals.clear();
+  morinLastInterim='';
+  $('#morinText').value=morinBaseText.slice(0,12000);
+}
+
+function setSpeechVisual(live,message){
   const button=$('#morinMicBtn');
   const status=$('#morinMicStatus');
-  button.classList.toggle('listening',recording);
-  status.classList.toggle('live',recording);
-  button.textContent=recording?'⏹️ סיימתי לדבר':'🎙️ דברו אל מורין';
+  button.classList.toggle('listening',live);
+  status.classList.toggle('live',live);
+  button.textContent=live?'⏹️ סיימתי לדבר':'🎙️ דברו אל מורין';
   status.textContent=message;
 }
 
-function startMorinTimer(){
-  clearInterval(morinRecordingTimer);
-  morinRecordingStartedAt=Date.now();
-  morinRecordingTimer=setInterval(()=>{
-    if(!morinMediaRecorder || morinMediaRecorder.state!=='recording')return;
-    const seconds=Math.floor((Date.now()-morinRecordingStartedAt)/1000);
-    const minutes=Math.floor(seconds/60);
-    const remain=String(seconds%60).padStart(2,'0');
-    $('#morinMicStatus').textContent=`מורין מקליטה ברצף… ${minutes}:${remain}`;
-  },1000);
-}
-
-function finishMorinTimer(){
-  clearInterval(morinRecordingTimer);
-  morinRecordingTimer=null;
-}
-
-async function transcribeMorinRecording(blob,mimeType){
-  if(blob.size<800){
-    $('#morinMicStatus').textContent='ההקלטה הייתה קצרה מדי. אפשר לנסות שוב.';
-    return;
+function makeRecognition(){
+  const r=new SpeechRecognitionAPI();
+  r.lang='he-IL';
+  r.continuous=true;
+  r.interimResults=true;
+  r.maxAlternatives=1;
+  if('unspokenPunctuation' in r){
+    try{r.unspokenPunctuation=true}catch{}
   }
-  morinTranscribing=true;
-  $('#morinMicBtn').disabled=true;
-  $('#morinMicStatus').textContent='מורין מתמללת את כל ההקלטה…';
-  try{
-    const audio_base64=await blobToBase64(blob);
-    const result=await api('/api/morin/transcribe',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        audio_base64,
-        format:formatFromMime(mimeType),
-        language:'he'
-      })
-    });
-    const transcript=String(result.text||'').trim();
-    if(!transcript)throw new Error('לא התקבל תמלול');
-    const current=$('#morinText').value;
-    const combined=appendMorinTranscript(current,transcript);
-    $('#morinText').value=combined.slice(0,12000);
-    $('#morinMicStatus').textContent='התמלול נוסף. אפשר להמשיך לדבר או לערוך אותו.';
-  }catch(err){
-    $('#morinMicStatus').textContent=err?.message||'לא הצלחתי לתמלל את ההקלטה.';
-  }finally{
-    morinTranscribing=false;
-    $('#morinMicBtn').disabled=false;
-  }
-}
 
-async function startMorinRecording(){
-  if(morinTranscribing)return;
-  if(!MediaRecorderAPI || !navigator.mediaDevices?.getUserMedia){
-    $('#morinMicStatus').textContent='הקלטה קולית אינה זמינה בדפדפן הזה — אפשר לכתוב כאן.';
-    return;
-  }
-  try{
-    morinMediaStream=await navigator.mediaDevices.getUserMedia({
-      audio:{
-        echoCancellation:true,
-        noiseSuppression:true,
-        autoGainControl:true
+  r.onstart=()=>{
+    morinRecognitionActive=true;
+    setSpeechVisual(true,'מורין מקשיבה… אפשר לדבר ולהשהות');
+  };
+
+  r.onresult=(event)=>{
+    let interim='';
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const transcript=cleanSpeech(event.results[i][0]?.transcript);
+      if(!transcript)continue;
+      if(event.results[i].isFinal){
+        morinSegmentFinals.set(i,transcript);
+      }else{
+        interim=transcript;
       }
-    });
-    const mimeType=preferredRecordingMime();
-    const options={audioBitsPerSecond:64000};
-    if(mimeType)options.mimeType=mimeType;
+    }
+    morinLastInterim=interim;
+    renderSpeech(interim);
+  };
 
-    morinAudioChunks=[];
-    morinMediaRecorder=new MediaRecorderAPI(morinMediaStream,options);
-    morinMediaRecorder.ondataavailable=(event)=>{
-      if(event.data && event.data.size>0)morinAudioChunks.push(event.data);
+  r.onerror=(event)=>{
+    const fatal=['not-allowed','service-not-allowed','audio-capture'];
+    const msg={
+      'not-allowed':'צריך לאשר לדפדפן גישה למיקרופון.',
+      'service-not-allowed':'הדפדפן חסם את שירות ההכתבה.',
+      'audio-capture':'לא הצלחתי לגשת למיקרופון.',
+      'network':'שירות ההכתבה נותק לרגע — מתחברת מחדש.',
+      'no-speech':'לא שמעתי דיבור — ממשיכה להקשיב.'
     };
-    morinMediaRecorder.onerror=()=>{
-      finishMorinTimer();
-      stopMorinTracks();
-      setMorinMicVisual(false,'המיקרופון נעצר בגלל שגיאת הקלטה.');
-    };
-    morinMediaRecorder.onstop=async()=>{
-      finishMorinTimer();
-      const actualMime=morinMediaRecorder?.mimeType||mimeType||'audio/webm';
-      const blob=new Blob(morinAudioChunks,{type:actualMime});
-      morinAudioChunks=[];
-      stopMorinTracks();
-      morinMediaRecorder=null;
-      setMorinMicVisual(false,'ההקלטה הסתיימה. מתחילה תמלול…');
-      await transcribeMorinRecording(blob,actualMime);
-    };
-    morinMediaRecorder.start(1000);
-    setMorinMicVisual(true,'מורין מקליטה ברצף… 0:00');
-    startMorinTimer();
-  }catch(err){
-    stopMorinTracks();
-    const denied=err?.name==='NotAllowedError'||err?.name==='SecurityError';
-    setMorinMicVisual(false,denied?'צריך לאשר לדפדפן גישה למיקרופון.':'לא הצלחתי לפתוח את המיקרופון.');
-  }
+    if(fatal.includes(event.error)){
+      morinWantsListening=false;
+      clearTimeout(morinRestartTimer);
+      setSpeechVisual(false,msg[event.error]||'המיקרופון נעצר.');
+    }else if(morinWantsListening){
+      setSpeechVisual(true,msg[event.error]||'ההאזנה נקטעה לרגע — ממשיכה.');
+    }
+  };
+
+  r.onend=()=>{
+    morinRecognitionActive=false;
+    commitSegment();
+    if(!morinWantsListening){
+      setSpeechVisual(false,'קיבלתי. אפשר להמשיך לערוך או לבקש ממורין לסדר.');
+      return;
+    }
+    setSpeechVisual(true,'הייתה הפסקה — מורין ממשיכה להקשיב…');
+    clearTimeout(morinRestartTimer);
+    morinRestartTimer=setTimeout(()=>{
+      if(!morinWantsListening||morinRecognitionActive)return;
+      morinRecognition=makeRecognition();
+      try{morinRecognition.start()}catch{
+        morinRestartTimer=setTimeout(()=>{
+          if(morinWantsListening&&!morinRecognitionActive){
+            morinRecognition=makeRecognition();
+            try{morinRecognition.start()}catch{}
+          }
+        },600);
+      }
+    },180);
+  };
+  return r;
 }
 
-function stopMorinRecording(){
-  if(!morinMediaRecorder || morinMediaRecorder.state!=='recording')return;
-  finishMorinTimer();
+if(!SpeechRecognitionAPI){
   $('#morinMicBtn').disabled=true;
-  $('#morinMicStatus').textContent='מסיימת את ההקלטה…';
-  morinMediaRecorder.stop();
-}
-
-if(!MediaRecorderAPI || !navigator.mediaDevices?.getUserMedia){
-  $('#morinMicBtn').disabled=true;
-  $('#morinMicStatus').textContent='הקלטה קולית אינה זמינה בדפדפן הזה — אפשר לכתוב כאן.';
+  $('#morinMicStatus').textContent='הכתבה קולית אינה זמינה בדפדפן הזה — אפשר לכתוב כאן.';
 }else{
   $('#morinMicBtn').onclick=()=>{
-    if(morinMediaRecorder?.state==='recording'){
-      stopMorinRecording();
-    }else{
-      startMorinRecording();
+    if(morinWantsListening){
+      morinWantsListening=false;
+      clearTimeout(morinRestartTimer);
+      if(morinRecognitionActive){
+        try{morinRecognition.stop()}catch{}
+      }else{
+        commitSegment();
+        setSpeechVisual(false,'קיבלתי. אפשר להמשיך לערוך או לבקש ממורין לסדר.');
+      }
+      return;
+    }
+
+    morinBaseText=cleanSpeech($('#morinText').value);
+    morinSegmentFinals.clear();
+    morinLastInterim='';
+    morinWantsListening=true;
+    setSpeechVisual(true,'פותחת את המיקרופון…');
+    morinRecognition=makeRecognition();
+    try{morinRecognition.start()}catch{
+      morinWantsListening=false;
+      setSpeechVisual(false,'לא הצלחתי לפתוח את המיקרופון.');
     }
   };
 }

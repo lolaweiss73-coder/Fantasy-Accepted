@@ -234,6 +234,12 @@ class MorinStructureRequest(BaseModel):
     text: str = Field(min_length=10, max_length=12000)
 
 
+class MorinTranscribeRequest(BaseModel):
+    audio_base64: str = Field(min_length=100, max_length=20_000_000)
+    format: str = Field(default="webm", pattern="^(webm|ogg|wav|mp3|m4a|aac|flac)$")
+    language: str = Field(default="he", min_length=2, max_length=8)
+
+
 def current_identity(authorization: str | None) -> sqlite3.Row:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "נדרשת התחברות")
@@ -705,6 +711,33 @@ def report(info: ReportCreate, authorization: str | None = Header(default=None))
     con.commit()
     con.close()
     return {"ok": True, "id": report_id}
+
+
+@app.post("/api/morin/transcribe")
+async def morin_transcribe(info: MorinTranscribeRequest, authorization: str | None = Header(default=None)):
+    current_identity(authorization)
+
+    gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
+    gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
+    if not gateway_url or not gateway_token:
+        raise HTTPException(503, "התמלול הקולי עדיין לא מחובר באתר")
+
+    async with httpx.AsyncClient(timeout=80) as client:
+        response = await client.post(
+            f"{gateway_url}/transcribe",
+            headers={
+                "Authorization": f"Bearer {gateway_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "audio_base64": info.audio_base64,
+                "format": info.format,
+                "language": info.language,
+            },
+        )
+    if response.status_code >= 400:
+        raise HTTPException(502, "לא הצלחתי לתמלל את ההקלטה כרגע")
+    return response.json()
 
 
 @app.post("/api/morin/structure")

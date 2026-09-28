@@ -50,17 +50,111 @@ $('#morinDraftBtn').onclick=()=>openModal('morinModal');
 
 const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 let morinRecognition=null;
-let morinListening=false;
+let morinWantsListening=false;
+let morinRecognitionActive=false;
 let morinSpeechBase='';
-let morinSpeechFinal='';
+let morinSessionFinal='';
+let morinRestartTimer=null;
 
-function setMicState(live,message){
-  morinListening=live;
+function normalizeSpeech(text){
+  return String(text||'')
+    .toLowerCase()
+    .replace(/[.,!?;:״"'׳()[\]{}\-–—]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function collapseSpeechRepeats(text){
+  const words=String(text||'').trim().split(/\s+/).filter(Boolean);
+  const out=[];
+  let i=0;
+  const equalBlock=(a,b,size)=>{
+    for(let j=0;j<size;j++){
+      if(normalizeSpeech(words[a+j])!==normalizeSpeech(words[b+j]))return false;
+    }
+    return true;
+  };
+  while(i<words.length){
+    let collapsed=false;
+    const max=Math.min(8,Math.floor((words.length-i)/2));
+    for(let size=max;size>=2;size--){
+      if(!equalBlock(i,i+size,size))continue;
+      let repeats=2;
+      while(i+size*(repeats+1)<=words.length && equalBlock(i,i+size*repeats,size))repeats++;
+      out.push(...words.slice(i,i+size));
+      i+=size*repeats;
+      collapsed=true;
+      break;
+    }
+    if(collapsed)continue;
+
+    let same=1;
+    while(i+same<words.length && normalizeSpeech(words[i])===normalizeSpeech(words[i+same]))same++;
+    if(same>=3){
+      out.push(words[i]);
+      i+=same;
+      continue;
+    }
+    out.push(words[i]);
+    i++;
+  }
+  return out.join(' ');
+}
+
+function appendUniqueSpeech(existing,addition){
+  const left=String(existing||'').trim();
+  const right=collapseSpeechRepeats(addition);
+  if(!right)return left;
+  if(!left)return right;
+
+  const nl=normalizeSpeech(left), nr=normalizeSpeech(right);
+  if(nl.endsWith(nr))return left;
+  if(nr===nl)return left;
+
+  const lw=left.split(/\s+/), rw=right.split(/\s+/);
+  const max=Math.min(16,lw.length,rw.length);
+  for(let n=max;n>=1;n--){
+    const a=normalizeSpeech(lw.slice(-n).join(' '));
+    const b=normalizeSpeech(rw.slice(0,n).join(' '));
+    if(a && a===b){
+      return [left,rw.slice(n).join(' ')].filter(Boolean).join(' ');
+    }
+  }
+  return left+' '+right;
+}
+
+function renderMorinTranscript(interim=''){
+  let text=appendUniqueSpeech(morinSpeechBase,morinSessionFinal);
+  text=appendUniqueSpeech(text,interim);
+  $('#morinText').value=text.slice(0,12000);
+}
+
+function setMicVisual(live,message){
   const button=$('#morinMicBtn'), status=$('#morinMicStatus');
   button.classList.toggle('listening',live);
   status.classList.toggle('live',live);
   button.textContent=live?'⏹️ סיימתי לדבר':'🎙️ דברו אל מורין';
   status.textContent=message;
+}
+
+function commitMorinSession(){
+  morinSpeechBase=appendUniqueSpeech(morinSpeechBase,morinSessionFinal);
+  morinSessionFinal='';
+  renderMorinTranscript('');
+}
+
+function scheduleRecognitionRestart(delay=300){
+  clearTimeout(morinRestartTimer);
+  if(!morinWantsListening)return;
+  morinRestartTimer=setTimeout(()=>{
+    if(!morinWantsListening||morinRecognitionActive)return;
+    morinSessionFinal='';
+    try{
+      morinRecognition.start();
+    }catch{
+      scheduleRecognitionRestart(700);
+    }
+  },delay);
 }
 
 if(!SpeechRecognitionAPI){
@@ -71,42 +165,76 @@ if(!SpeechRecognitionAPI){
   morinRecognition.lang='he-IL';
   morinRecognition.continuous=true;
   morinRecognition.interimResults=true;
+  morinRecognition.maxAlternatives=1;
 
-  morinRecognition.onstart=()=>setMicState(true,'מורין מקשיבה… דברו חופשי');
+  morinRecognition.onstart=()=>{
+    morinRecognitionActive=true;
+    setMicVisual(true,'מורין מקשיבה… אפשר לדבר ברצף');
+  };
+
   morinRecognition.onresult=(event)=>{
+    let finalText='';
     let interim='';
-    for(let i=event.resultIndex;i<event.results.length;i++){
+    for(let i=0;i<event.results.length;i++){
       const transcript=event.results[i][0].transcript.trim();
+      if(!transcript)continue;
       if(event.results[i].isFinal){
-        morinSpeechFinal+=(morinSpeechFinal?' ':'')+transcript;
+        finalText=appendUniqueSpeech(finalText,transcript);
       }else{
-        interim+=(interim?' ':'')+transcript;
+        interim=appendUniqueSpeech(interim,transcript);
       }
     }
-    $('#morinText').value=[morinSpeechBase,morinSpeechFinal,interim].filter(Boolean).join(' ').slice(0,12000);
+    morinSessionFinal=collapseSpeechRepeats(finalText);
+    renderMorinTranscript(interim);
   };
+
   morinRecognition.onerror=(event)=>{
+    const fatal=['not-allowed','service-not-allowed','audio-capture'];
     const messages={
       'not-allowed':'צריך לאשר לדפדפן גישה למיקרופון.',
-      'no-speech':'לא שמעתי דיבור. אפשר לנסות שוב.',
+      'service-not-allowed':'הדפדפן חסם את שירות ההכתבה.',
+      'no-speech':'לא שמעתי דיבור — אני ממשיכה להקשיב.',
       'audio-capture':'לא הצלחתי לגשת למיקרופון.',
-      'network':'שירות ההכתבה הקולית לא זמין כרגע.'
+      'network':'שירות ההכתבה נותק לרגע — אני מתחברת מחדש.'
     };
-    setMicState(false,messages[event.error]||'ההאזנה נעצרה. אפשר לנסות שוב.');
+    if(fatal.includes(event.error)){
+      morinWantsListening=false;
+      clearTimeout(morinRestartTimer);
+      setMicVisual(false,messages[event.error]||'המיקרופון נעצר.');
+    }else if(morinWantsListening){
+      setMicVisual(true,messages[event.error]||'ההאזנה נקטעה לרגע — אני מתחברת מחדש.');
+    }
   };
+
   morinRecognition.onend=()=>{
-    if(morinListening)setMicState(false,'ההאזנה הסתיימה — אפשר להמשיך לדבר בלחיצה נוספת או לסדר את הטיוטה.');
+    morinRecognitionActive=false;
+    commitMorinSession();
+    if(morinWantsListening){
+      setMicVisual(true,'מורין עדיין מקשיבה… ממשיכים');
+      scheduleRecognitionRestart(250);
+    }else{
+      setMicVisual(false,'קיבלתי. אפשר לעבור על התמלול או לבקש ממורין לסדר אותו.');
+    }
   };
+
   $('#morinMicBtn').onclick=()=>{
-    if(morinListening){
-      morinListening=false;
-      morinRecognition.stop();
-      setMicState(false,'קיבלתי. אפשר לעבור על התמלול או לבקש ממורין לסדר אותו.');
+    if(morinWantsListening){
+      morinWantsListening=false;
+      clearTimeout(morinRestartTimer);
+      if(morinRecognitionActive){
+        try{morinRecognition.stop()}catch{}
+      }else{
+        commitMorinSession();
+        setMicVisual(false,'קיבלתי. אפשר לעבור על התמלול או לבקש ממורין לסדר אותו.');
+      }
       return;
     }
-    morinSpeechBase=$('#morinText').value.trim();
-    morinSpeechFinal='';
-    try{morinRecognition.start()}catch{setMicState(false,'המיקרופון כבר פעיל או לא זמין כרגע.')}
+
+    morinSpeechBase=collapseSpeechRepeats($('#morinText').value.trim());
+    morinSessionFinal='';
+    morinWantsListening=true;
+    setMicVisual(true,'פותחת את המיקרופון…');
+    scheduleRecognitionRestart(0);
   };
 }
 

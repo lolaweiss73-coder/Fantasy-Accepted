@@ -30,7 +30,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def current_site_mode() -> str:
-    mode = current_site_mode()_CONTEXT.get()
+    mode = SITE_MODE_CONTEXT.get()
     return "adult" if mode == "adult" else "general"
 
 
@@ -39,7 +39,7 @@ async def bind_site_mode(request: Request, call_next):
     header_mode = (request.headers.get("x-site-mode") or "").strip().lower()
     path_mode = "adult" if request.url.path == "/adult" or request.url.path.startswith("/adult/") else "general"
     mode = "adult" if header_mode == "adult" or path_mode == "adult" else "general"
-    token = current_site_mode()_CONTEXT.set(mode)
+    token = SITE_MODE_CONTEXT.set(mode)
     try:
         return await call_next(request)
     finally:

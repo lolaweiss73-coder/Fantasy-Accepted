@@ -41,7 +41,7 @@
             <h1>מה הפנטזיה שלך?</h1>
             <p>תארו מה אתם מחפשים, הגדירו את התפקידים והגבולות, ותנו להתאמה להתחיל מהפנטזיה עצמה.</p>
           </div>
-          <button id="heroCreate" class="primary large">פרסום פנטזיה</button>
+          <button id="heroCreate" class="primary large">ספרו למורין</button>
         </div>
 
         <div class="filters">
@@ -61,6 +61,8 @@
           </div>
           <button id="morinDraftBtn" class="morin-outline">ספרו למורין במקום למלא טופס</button>
         </div>
+
+        <div id="morinReviewNote" class="form-card hidden"></div>
 
         <form id="fantasyForm" class="form-card">
           <label>כותרת
@@ -90,6 +92,13 @@
           </div>
           <label>תגיות
             <input id="fantasyTags" placeholder="מופרדות בפסיקים">
+          </label>
+
+          <label>יוזם/ת הפנטזיה
+            <select id="ownerParticipates">
+              <option value="yes">משתתף/ת אוטומטית — כבר בפנים</option>
+              <option value="no">מארגן/ת בלבד — הפנטזיה מיועדת לאחרים</option>
+            </select>
           </label>
 
           <div class="role-section">
@@ -207,9 +216,11 @@
         <button id="morinResetBtn" class="ghost" type="button">↺ התחלה מחדש</button>
         <span id="morinMicStatus" class="status-text">המיקרופון מוכן</span>
       </div>
+      <div id="morinReply" class="form-card hidden"></div>
+      <div id="morinQuestions" class="hidden"></div>
       <textarea id="morinText" rows="10" maxlength="12000" placeholder="מה שתאמרו יופיע כאן כתמלול, ואפשר גם להקליד…"></textarea>
       <div class="form-actions">
-        <button id="morinStructureBtn" class="primary">סיימתי — סדרי לי את הפנטזיה</button>
+        <button id="morinStructureBtn" class="primary">סיימתי — דברי איתי</button>
         <span id="morinStatus" class="status-text"></span>
       </div>
     </div>
@@ -218,7 +229,7 @@
   <div id="toast" class="toast"></div>
   <script src="/static/core.js" defer></script>
   <script src="/static/feed.js" defer></script>
-  <script src="/static/create.js?v=20260929-mic6" defer></script>
+  <script src="/static/create.js?v=20260929-flow7" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>
 </html>

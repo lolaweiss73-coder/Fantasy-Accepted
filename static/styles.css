@@ -24,3 +24,7 @@
   .welcome-actions,.welcome-inline{flex-direction:column;align-items:stretch}
   .welcome-actions button,.welcome-inline button{width:100%}
 }
+
+.welcome-transcript-label{display:block;margin:16px 0 7px;color:#d9cce3;font-size:13px;font-weight:800}
+.welcome-transcript{width:100%;min-height:150px;border:1px solid #4b365d;background:#0f0b16;color:#efe7f6;border-radius:14px;padding:13px;line-height:1.6;resize:vertical}
+.welcome-transcript[readonly]{cursor:text}

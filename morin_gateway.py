@@ -34,13 +34,24 @@ title: string
 description: string
 mode: one of online, meeting, either
 tags: array of short strings
-roles: array of objects with name, description, capacity, min_age, max_age, allowed_genders, region
+roles: array of EXTERNAL people still needed, with name, description, capacity, min_age, max_age, allowed_genders, region
+owner_participates: boolean
+morin_response: a concise, warm response in the user's language that reflects what you understood without embellishing it
+clarifying_questions: array of at most 2 concise questions
+ready_to_draft: boolean
 blocked_reason: string or null
-Unknown values should be empty strings, empty arrays, or null. Every min_age must be at least 18."""
+
+The fantasy creator is already present in the system. Never create a recruitment role for the creator.
+Set owner_participates=true when the creator is themselves part of the fantasy.
+Set owner_participates=false when the creator is only arranging something for other people.
+Ask a clarifying question only when the missing fact materially affects matching or who needs to be recruited. Do not interrogate the user for decorative details.
+If the fantasy is clear enough for matching, clarifying_questions must be [] and ready_to_draft=true.
+Unknown non-essential values should be empty strings, empty arrays, or null. Every min_age must be at least 18."""
 
 
 class StructureRequest(BaseModel):
     text: str = Field(min_length=10, max_length=12000)
+    previous_questions: list[str] = Field(default_factory=list, max_length=2)
 
 
 class TranscriptionRequest(BaseModel):
@@ -71,26 +82,26 @@ def parse_json_content(content: str) -> dict:
     return result
 
 
-async def call_openai(text: str) -> dict:
+async def call_openai(text: str, previous_questions: list[str]) -> dict:
     if not openai_client:
         raise RuntimeError("OpenAI not configured")
     response = await openai_client.responses.create(
         model=OPENAI_MODEL,
         reasoning={"effort": "low"},
         instructions=INSTRUCTIONS,
-        input=text,
+        input=text + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else ""),
     )
     return parse_json_content(response.output_text or "")
 
 
-async def call_openrouter(text: str) -> dict:
+async def call_openrouter(text: str, previous_questions: list[str]) -> dict:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OpenRouter not configured")
     payload = {
         "model": OPENROUTER_MODEL,
         "messages": [
             {"role": "system", "content": INSTRUCTIONS},
-            {"role": "user", "content": text},
+            {"role": "user", "content": text + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else "")},
         ],
         "temperature": 0.2,
     }
@@ -134,6 +145,22 @@ def normalize_result(result: dict, original_text: str) -> dict:
                 "region": str(role.get("region") or "").strip(),
             }
         )
+    owner_participates = result.get("owner_participates")
+    result["owner_participates"] = True if owner_participates is None else bool(owner_participates)
+
+    creator_terms = ("יוזם", "יוזמת", "המפנטז", "המפנטזת", "מפרסם", "מפרסמת", "creator", "initiator", "owner")
+    if result["owner_participates"]:
+        clean_roles = [
+            role for role in clean_roles
+            if not any(term in role["name"].lower() for term in creator_terms)
+        ]
+
+    questions = result.get("clarifying_questions") or []
+    if not isinstance(questions, list):
+        questions = []
+    result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
+    result["ready_to_draft"] = bool(result.get("ready_to_draft")) and not result["clarifying_questions"]
+    result["morin_response"] = str(result.get("morin_response") or "").strip()
     result["roles"] = clean_roles
     result.setdefault("blocked_reason", None)
     result.setdefault("title", "")
@@ -206,6 +233,10 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
             "mode": "either",
             "tags": [],
             "roles": [],
+            "owner_participates": False,
+            "morin_response": "",
+            "clarifying_questions": [],
+            "ready_to_draft": False,
         }
 
     errors = []
@@ -213,13 +244,13 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
 
     if openai_client:
         try:
-            result = await call_openai(info.text)
+            result = await call_openai(info.text, info.previous_questions)
         except Exception as exc:
             errors.append(f"openai:{type(exc).__name__}")
 
     if result is None and OPENROUTER_API_KEY:
         try:
-            result = await call_openrouter(info.text)
+            result = await call_openrouter(info.text, info.previous_questions)
         except Exception as exc:
             errors.append(f"openrouter:{type(exc).__name__}")
 

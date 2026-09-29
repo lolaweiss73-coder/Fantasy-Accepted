@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
-    <span id="announcementText"></span>
+  <div id="announcementBar" class="announcement-bar" role="status" aria-live="polite" dir="rtl">
+    <div class="announcement-viewport">
+      <div id="announcementTrack" class="announcement-track"></div>
+    </div>
   </div>
   <header class="topbar">
     <div class="brand-wrap">
@@ -286,17 +288,27 @@
     <div class="modal-card admin-card">
       <button class="close-btn" data-close="adminModal">×</button>
       <div class="eyebrow">ADMIN</div>
-      <h2>ניהול הודעת האתר</h2>
-      <p class="muted">הטקסט נשמר במסד הנתונים ומופיע בראש האתר לכל המשתמשים.</p>
+      <h2>ניהול הודעות האתר</h2>
+      <p class="muted">כל הודעה נשמרת בנפרד. האתר מחבר את כולן לטיקר אחד עם מפריד ✦.</p>
+
       <label>סיסמת מנהל
         <input id="adminPassword" type="password" autocomplete="current-password" placeholder="סיסמת מנהל">
       </label>
-      <label>הודעה
-        <textarea id="adminAnnouncement" rows="4" maxlength="220"></textarea>
-      </label>
-      <div class="form-actions">
-        <button id="adminSaveBtn" class="primary" type="button">שמירת הודעה</button>
-        <span id="adminStatus" class="status-text"></span>
+
+      <div class="admin-announcement-editor">
+        <label id="adminEditorLabel">הוסף הודעה
+          <textarea id="adminAnnouncementEditor" rows="3" maxlength="220" placeholder="כתבו הודעה חדשה…"></textarea>
+        </label>
+        <div class="form-actions">
+          <button id="adminAnnouncementSubmit" class="primary" type="button">הוסף הודעה</button>
+          <button id="adminAnnouncementCancel" class="ghost hidden" type="button">ביטול עריכה</button>
+          <span id="adminStatus" class="status-text"></span>
+        </div>
+      </div>
+
+      <div class="admin-announcement-list-wrap">
+        <h3>הודעות פעילות</h3>
+        <div id="adminAnnouncementList" class="admin-announcement-list"></div>
       </div>
     </div>
   </div>
@@ -341,7 +353,7 @@
 
   <div id="toast" class="toast"></div>
   <script src="/static/core.js" defer></script>
-  <script src="/static/admin.js?v=20260929-admin1" defer></script>
+  <script src="/static/admin.js?v=20260929-admin3" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
   <script src="/static/feed.js" defer></script>
   <script src="/static/create.js?v=20260929-tracks1" defer></script>

@@ -45,16 +45,36 @@
 }
 
 
-.announcement-bar{position:sticky;top:0;z-index:80;text-align:center;padding:9px 14px;background:linear-gradient(90deg,rgba(255,106,168,.95),rgba(155,109,255,.95));color:#160b18;font-weight:900;letter-spacing:.01em;box-shadow:0 6px 20px rgba(0,0,0,.18)}
-body:has(.announcement-bar:not(.hidden)) .topbar{top:38px}
+.announcement-bar{position:sticky;top:0;z-index:80;height:38px;display:flex;align-items:center;background:linear-gradient(90deg,rgba(255,106,168,.95),rgba(155,109,255,.95));color:#160b18;font-weight:900;letter-spacing:.01em;box-shadow:0 6px 20px rgba(0,0,0,.18);direction:rtl}
+.announcement-viewport{width:100%;overflow:hidden;white-space:nowrap}
+.announcement-track{display:flex;width:max-content;min-width:200%;align-items:center;direction:rtl;will-change:transform;animation:announcementTickerRtl 34s linear infinite}
+.announcement-set{display:flex;align-items:center;justify-content:space-around;gap:24px;min-width:100vw;padding:0 28px;box-sizing:border-box;direction:rtl;flex-shrink:0}
+.ticker-message{direction:rtl;unicode-bidi:isolate;white-space:nowrap}
+.ticker-separator{opacity:.68;flex:0 0 auto}
+@keyframes announcementTickerRtl{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+body:has(.announcement-bar) .topbar{top:38px}
 .admin-btn{font-size:12px;padding:8px 10px;opacity:.8}
-.admin-card{width:min(560px,100%)}
+.admin-card{width:min(650px,100%)}
+.admin-announcement-editor{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.admin-announcement-list-wrap{margin-top:22px}
+.admin-announcement-list{display:flex;flex-direction:column;gap:10px}
+.admin-announcement-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);direction:rtl}
+.admin-announcement-text{flex:1;line-height:1.5;overflow-wrap:anywhere;direction:rtl;unicode-bidi:isolate}
+.admin-announcement-actions{display:flex;gap:8px;flex:0 0 auto}
+.admin-announcement-actions .danger{opacity:.78}
+.admin-empty{padding:16px}
 .gate-card{background:radial-gradient(circle at 100% 0,rgba(155,109,255,.18),transparent 38%),radial-gradient(circle at 0 100%,rgba(255,106,168,.12),transparent 36%),#171221}
 .gate-card h1{font-size:34px;margin-bottom:10px}
 .gate-card .lead{line-height:1.65}
+@media(prefers-reduced-motion:reduce){
+  .announcement-track{animation:none;transform:none}
+  .announcement-viewport{overflow-x:auto}
+}
 @media(max-width:900px){
-  .announcement-bar{font-size:13px;padding:8px 10px}
-  body:has(.announcement-bar:not(.hidden)) .topbar{top:34px}
+  .announcement-bar{height:34px;font-size:13px}
+  .announcement-set{gap:18px;padding:0 18px}
+  body:has(.announcement-bar) .topbar{top:34px}
   .admin-btn{font-size:0;padding:8px}
   .admin-btn::after{content:"⚙️";font-size:15px}
+  .admin-announcement-row{align-items:flex-start;flex-direction:column}
 }

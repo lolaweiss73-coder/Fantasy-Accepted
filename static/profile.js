@@ -110,10 +110,28 @@ async function refreshMatchUi(){
   }
 }
 
-$('#profileBtn').onclick=()=>{
+async function loadMyActivitySummary(){
+  const root=$('#profileActivitySummary');
+  if(!root)return;
+  root.textContent='הגשמות מתועדות: טוענת…';
+  try{
+    const stats=await api('/api/me/activity-summary');
+    root.innerHTML=`
+      <span><strong>${Number(stats.fulfilled_total||0)}</strong> הגשמות מאושרות ומתועדות</span>
+      <span>·</span>
+      <span>${Number(stats.fulfilled_as_owner||0)} כיוזם/ת</span>
+      <span>·</span>
+      <span>${Number(stats.fulfilled_as_participant||0)} כמשתתף/ת</span>`;
+  }catch{
+    root.textContent='נתוני ההגשמות אינם זמינים כרגע.';
+  }
+}
+
+$('#profileBtn').onclick=async()=>{
   fillProfileForm();
   $('#profileStatus').textContent='';
   openModal('profileModal');
+  await loadMyActivitySummary();
 };
 $('#profileSaveBtn').onclick=saveMatchingProfile;
 

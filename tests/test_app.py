@@ -594,3 +594,27 @@ def test_completion_summary_is_factual_and_counts_fulfilled_wishes():
     assert participant_stats.status_code == 200
     assert owner_stats.json()["fulfilled_as_owner"] >= 1
     assert participant_stats.json()["fulfilled_as_participant"] >= 1
+
+
+def test_profile_can_store_optional_relationship_details_after_signup():
+    user, headers = join("profile-details", 34, "female", "center")
+    response = client.put(
+        "/api/me/profile",
+        headers=headers,
+        json={
+            "region": "north",
+            "marital_status": "divorced",
+            "relationship_status": "single",
+            "skills": ["צילום", "נהיגה"],
+            "availability": "סופי שבוע",
+            "travel_radius_km": 40,
+            "bio": "פרופיל התאמה",
+            "adult_discovery": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["region"] == "north"
+    assert data["marital_status"] == "divorced"
+    assert data["relationship_status"] == "single"
+    assert data["skills"] == ["צילום", "נהיגה"]

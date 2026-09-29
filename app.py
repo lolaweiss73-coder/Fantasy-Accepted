@@ -566,6 +566,16 @@ def refresh_matches_for_identity(con: sqlite3.Connection, identity_id: str) -> i
                 (score, json_dump(reasons), ts, fantasy["id"], role["id"], identity_id),
             )
             continue
+        label = "משאלה" if fantasy["kind"] == "general" else "פנטזיה"
+        add_notification(
+            con,
+            identity_id,
+            "match",
+            f"מורין מצאה {label} שיכולה להתאים לך: {fantasy['title']} · תפקיד: {role['name']}",
+            fantasy["id"],
+            role["id"],
+            fantasy["owner_id"],
+        )
         created += 1
     return created
 

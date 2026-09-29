@@ -78,3 +78,22 @@ body:has(.announcement-bar) .topbar{top:38px}
   .admin-btn::after{content:"⚙️";font-size:15px}
   .admin-announcement-row{align-items:flex-start;flex-direction:column}
 }
+
+
+.notification-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#fff;color:#6c2c7b;font-size:11px;font-weight:900;margin-inline-start:3px}
+.notifications-list,.matches-list{display:flex;flex-direction:column;gap:10px}
+.notification-item{width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;text-align:right;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);color:inherit;cursor:pointer;direction:rtl}
+.notification-item.unread{background:rgba(255,106,168,.10);border-color:rgba(255,106,168,.34)}
+.notification-copy{flex:1;line-height:1.45}
+.notification-time{font-size:12px;opacity:.6;white-space:nowrap}
+.matches-list{margin-top:8px}
+.match-card{padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025)}
+.match-score{font-weight:900;color:var(--accent)}
+.input-with-unit{display:flex;align-items:center;gap:8px}
+.input-with-unit input{flex:1}
+.input-with-unit span{opacity:.7;white-space:nowrap}
+.section-head.compact{margin-top:22px;margin-bottom:8px}
+@media(max-width:700px){
+  .notification-item{flex-direction:column}
+  .notification-time{align-self:flex-start}
+}

@@ -1,5 +1,5 @@
 const $ = (q) => document.querySelector(q);
-const $ = (q) => [...document.querySelectorAll(q)];
+const $$ = (q) => [...document.querySelectorAll(q)];
 
 const SITE_MODE = document.body.dataset.siteMode === 'adult' ? 'adult' : 'general';
 window.FA_SITE_MODE = SITE_MODE;
@@ -61,7 +61,7 @@ function showView(name){
 function applyTrackUI(){
   state.track=SITE_MODE;
   const adult=SITE_MODE==='adult';
-  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
+  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
   if($('#feedTitle'))$('#feedTitle').textContent=adult?'מה הפנטזיה שלך?':'מה היית רוצה שיקרה?';
   if($('#feedLead'))$('#feedLead').textContent=adult
@@ -84,7 +84,7 @@ function setTrack(_track,{reload=true}={}){
   if(reload && state.me)loadFeed();
 }
 
-$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
+$$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
   setTrack(SITE_MODE);
 }));
 

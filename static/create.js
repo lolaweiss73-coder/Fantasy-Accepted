@@ -41,11 +41,14 @@ $('#fantasyForm').onsubmit=async(e)=>{
   if(payload.roles.some(r=>!r.name)){ $('#createStatus').textContent='צריך שם לכל תפקיד'; return; }
   try{
     await api('/api/fantasies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    $('#createStatus').textContent='פורסם'; toast('הפנטזיה פורסמה'); e.target.reset(); $('#rolesEditor').replaceChildren();state.roleCount=0;addRole();showView('feed');
+    $('#createStatus').textContent='פורסם'; toast('הפנטזיה פורסמה'); e.target.reset(); $('#rolesEditor').replaceChildren();state.roleCount=0;addRole();resetMorinVoiceState({clearText:true});showView('feed');
   }catch(err){$('#createStatus').textContent=err.message}
 };
 
-$('#morinOpen').onclick=()=>openModal('morinModal');
+$('#morinOpen').onclick=()=>{
+  if(!$('#createView').classList.contains('active-view'))resetFantasyComposer();
+  openModal('morinModal');
+};
 $('#morinDraftBtn').onclick=()=>openModal('morinModal');
 
 const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -56,6 +59,37 @@ let morinRestartTimer=null;
 let morinBaseText='';
 let morinSegmentFinals=new Map();
 let morinLastInterim='';
+
+function resetMorinVoiceState({clearText=false}={}){
+  morinWantsListening=false;
+  clearTimeout(morinRestartTimer);
+  morinRestartTimer=null;
+  morinSegmentFinals.clear();
+  morinLastInterim='';
+  if(morinRecognitionActive && morinRecognition){
+    try{morinRecognition.abort()}catch{}
+  }
+  morinRecognitionActive=false;
+  morinRecognition=null;
+  if(clearText){
+    morinBaseText='';
+    $('#morinText').value='';
+    $('#morinStatus').textContent='';
+  }else{
+    morinBaseText=cleanSpeech($('#morinText').value);
+  }
+  setSpeechVisual(false,'המיקרופון מוכן');
+}
+
+function resetFantasyComposer(){
+  resetMorinVoiceState({clearText:true});
+  $('#fantasyForm').reset();
+  $('#fantasyDescription').dataset.original='';
+  $('#createStatus').textContent='';
+  $('#rolesEditor').replaceChildren();
+  state.roleCount=0;
+  addRole();
+}
 
 function cleanSpeech(text){
   return String(text||'').replace(/\s+/g,' ').trim();
@@ -203,6 +237,29 @@ function makeRecognition(){
   };
   return r;
 }
+
+$('#morinText').addEventListener('input',()=>{
+  // The textarea is the single source of truth. A manual correction or deletion
+  // must immediately override anything the recognizer remembered internally.
+  morinBaseText=cleanSpeech($('#morinText').value);
+  morinSegmentFinals.clear();
+  morinLastInterim='';
+  if(morinWantsListening && morinRecognitionActive && morinRecognition){
+    // Abort this recognition generation so stale cumulative Google results
+    // cannot re-introduce text the user just deleted. onend will restart cleanly.
+    try{morinRecognition.abort()}catch{}
+  }
+});
+
+$('#morinResetBtn').onclick=()=>{
+  resetMorinVoiceState({clearText:true});
+  toast('הטיוטה של מורין נוקתה');
+};
+
+// Choosing "create fantasy" from outside the composer means a genuinely new draft.
+$('#heroCreate').addEventListener('click',()=>resetFantasyComposer(),true);
+const createNav=$('.nav-btn[data-view="create"]');
+if(createNav)createNav.addEventListener('click',()=>resetFantasyComposer(),true);
 
 if(!SpeechRecognitionAPI){
   $('#morinMicBtn').disabled=true;

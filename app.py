@@ -80,6 +80,11 @@ def init_db() -> None:
             marital_status TEXT NOT NULL DEFAULT 'prefer_not_to_say',
             relationship_status TEXT NOT NULL DEFAULT 'prefer_not_to_say',
             dnd INTEGER NOT NULL DEFAULT 0,
+            skills TEXT NOT NULL DEFAULT '[]',
+            availability TEXT NOT NULL DEFAULT '',
+            travel_radius_km INTEGER NOT NULL DEFAULT 0,
+            bio TEXT NOT NULL DEFAULT '',
+            adult_discovery INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL
         );
 
@@ -176,10 +181,38 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS match_suggestions (
+            id TEXT PRIMARY KEY,
+            fantasy_id TEXT NOT NULL REFERENCES fantasies(id) ON DELETE CASCADE,
+            role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            score INTEGER NOT NULL DEFAULT 0,
+            reasons TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'suggested',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(fantasy_id, role_id, identity_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            recipient_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            text TEXT NOT NULL,
+            fantasy_id TEXT REFERENCES fantasies(id) ON DELETE CASCADE,
+            role_id TEXT REFERENCES roles(id) ON DELETE CASCADE,
+            actor_id TEXT REFERENCES identities(id) ON DELETE SET NULL,
+            created_at REAL NOT NULL,
+            read_at REAL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_fantasies_created ON fantasies(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_roles_fantasy ON roles(fantasy_id);
         CREATE INDEX IF NOT EXISTS idx_applications_fantasy ON applications(fantasy_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id, recipient_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_match_identity ON match_suggestions(identity_id, status, score DESC);
+        CREATE INDEX IF NOT EXISTS idx_match_fantasy ON match_suggestions(fantasy_id, score DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, read_at, created_at DESC);
         """
     )
 
@@ -201,6 +234,25 @@ def init_db() -> None:
         kind_exists = any(row["name"] == "kind" for row in con.execute("PRAGMA table_info(fantasies)").fetchall())
     if not kind_exists:
         con.execute("ALTER TABLE fantasies ADD COLUMN kind TEXT NOT NULL DEFAULT 'adult'")
+
+    # Profile fields added for matching and proactive discovery.
+    identity_columns = [
+        ("skills", "TEXT NOT NULL DEFAULT '[]'"),
+        ("availability", "TEXT NOT NULL DEFAULT ''"),
+        ("travel_radius_km", "INTEGER NOT NULL DEFAULT 0"),
+        ("bio", "TEXT NOT NULL DEFAULT ''"),
+        ("adult_discovery", "INTEGER NOT NULL DEFAULT 0"),
+    ]
+    for column_name, column_sql in identity_columns:
+        if getattr(con, "postgres", False):
+            exists = con.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_name='identities' AND column_name=?",
+                (column_name,),
+            ).fetchone()
+        else:
+            exists = any(row["name"] == column_name for row in con.execute("PRAGMA table_info(identities)").fetchall())
+        if not exists:
+            con.execute(f"ALTER TABLE identities ADD COLUMN {column_name} {column_sql}")
 
     existing_announcement = con.execute("SELECT value FROM site_settings WHERE key='announcement'").fetchone()
     if not existing_announcement:
@@ -235,6 +287,15 @@ class SessionCreate(BaseModel):
     marital_status: str = Field(default="prefer_not_to_say", max_length=40)
     relationship_status: str = Field(default="prefer_not_to_say", max_length=40)
     adult_confirm: bool
+
+
+class ProfileUpdate(BaseModel):
+    region: str = Field(default="", max_length=80)
+    skills: list[str] = Field(default_factory=list, max_length=30)
+    availability: str = Field(default="", max_length=160)
+    travel_radius_km: int = Field(default=0, ge=0, le=500)
+    bio: str = Field(default="", max_length=1200)
+    adult_discovery: bool = False
 
 
 class RoleInput(BaseModel):
@@ -314,6 +375,7 @@ def current_identity(authorization: str | None) -> sqlite3.Row:
 
 
 def identity_public(row: sqlite3.Row) -> dict[str, Any]:
+    keys = set(row.keys())
     return {
         "id": row["id"],
         "nickname": row["nickname"],
@@ -323,6 +385,11 @@ def identity_public(row: sqlite3.Row) -> dict[str, Any]:
         "marital_status": row["marital_status"],
         "relationship_status": row["relationship_status"],
         "dnd": bool(row["dnd"]),
+        "skills": json_load(row["skills"], []) if "skills" in keys else [],
+        "availability": row["availability"] if "availability" in keys else "",
+        "travel_radius_km": row["travel_radius_km"] if "travel_radius_km" in keys else 0,
+        "bio": row["bio"] if "bio" in keys else "",
+        "adult_discovery": bool(row["adult_discovery"]) if "adult_discovery" in keys else False,
     }
 
 
@@ -349,6 +416,127 @@ def role_eligible(role: sqlite3.Row, person: sqlite3.Row) -> tuple[bool, list[st
     if role["relationship_status"] != "any" and person["relationship_status"] != role["relationship_status"]:
         reasons.append("relationship_status")
     return not reasons, reasons
+
+
+def match_tokens(*parts: str) -> set[str]:
+    text = " ".join(part or "" for part in parts).lower()
+    return {
+        token
+        for token in re.findall(r"[\w\u0590-\u05FF]+", text, flags=re.UNICODE)
+        if len(token) >= 2
+    }
+
+
+def match_score(fantasy: sqlite3.Row, role: sqlite3.Row, person: sqlite3.Row) -> tuple[int, list[str]]:
+    eligible, _ = role_eligible(role, person)
+    if not eligible:
+        return 0, []
+    if fantasy["kind"] == "adult" and not bool(person["adult_discovery"]):
+        return 0, []
+
+    score = 60
+    reasons = ["עומד/ת בתנאי התפקיד"]
+    if fantasy["mode"] == "online":
+        score += 10
+        reasons.append("המשאלה זמינה אונליין")
+    elif role["region"] and person["region"] == role["region"]:
+        score += 15
+        reasons.append("אותו אזור")
+    elif fantasy["region"] and person["region"] == fantasy["region"]:
+        score += 10
+        reasons.append("אזור מתאים")
+
+    skills = [str(skill).strip() for skill in json_load(person["skills"], []) if str(skill).strip()]
+    skill_tokens = match_tokens(*skills)
+    target_tokens = match_tokens(
+        role["name"],
+        role["description"],
+        fantasy["title"],
+        fantasy["description"],
+        " ".join(json_load(fantasy["tags"], [])),
+    )
+    overlap = sorted(skill_tokens & target_tokens)
+    if overlap:
+        score += min(25, 8 + len(overlap) * 5)
+        reasons.append("יכולות תואמות: " + ", ".join(overlap[:4]))
+    elif skills:
+        score += 3
+
+    if person["availability"]:
+        score += 5
+        reasons.append("הוגדרה זמינות")
+    return min(score, 100), reasons
+
+
+def add_notification(
+    con: sqlite3.Connection,
+    recipient_id: str,
+    kind: str,
+    text: str,
+    fantasy_id: str | None = None,
+    role_id: str | None = None,
+    actor_id: str | None = None,
+) -> str:
+    notification_id = uid()
+    con.execute(
+        "INSERT INTO notifications (id,recipient_id,kind,text,fantasy_id,role_id,actor_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (notification_id, recipient_id, kind, text, fantasy_id, role_id, actor_id, now()),
+    )
+    return notification_id
+
+
+def refresh_matches_for_fantasy(con: sqlite3.Connection, fantasy_id: str) -> int:
+    fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    if not fantasy or fantasy["status"] not in ("published", "matching"):
+        return 0
+    roles = con.execute("SELECT * FROM roles WHERE fantasy_id=?", (fantasy_id,)).fetchall()
+    people = con.execute("SELECT * FROM identities WHERE id<>? AND dnd=0", (fantasy["owner_id"],)).fetchall()
+    created = 0
+    for role in roles:
+        candidates: list[tuple[int, sqlite3.Row, list[str]]] = []
+        for person in people:
+            if blocked_between(con, fantasy["owner_id"], person["id"]):
+                continue
+            score, reasons = match_score(fantasy, role, person)
+            if score:
+                candidates.append((score, person, reasons))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for score, person, reasons in candidates[:12]:
+            suggestion_id = uid()
+            ts = now()
+            try:
+                con.execute(
+                    "INSERT INTO match_suggestions (id,fantasy_id,role_id,identity_id,score,reasons,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'suggested',?,?)",
+                    (suggestion_id, fantasy_id, role["id"], person["id"], score, json_dump(reasons), ts, ts),
+                )
+            except INTEGRITY_ERRORS:
+                continue
+            label = "משאלה" if fantasy["kind"] == "general" else "פנטזיה"
+            add_notification(
+                con,
+                person["id"],
+                "match",
+                f"מורין מצאה {label} שיכולה להתאים לך: {fantasy['title']} · תפקיד: {role['name']}",
+                fantasy_id,
+                role["id"],
+                fantasy["owner_id"],
+            )
+            created += 1
+    return created
+
+
+def refresh_matches_for_identity(con: sqlite3.Connection, identity_id: str) -> int:
+    con.execute(
+        "UPDATE match_suggestions SET status='stale',updated_at=? WHERE identity_id=? AND status='suggested'",
+        (now(), identity_id),
+    )
+    fantasies = con.execute(
+        "SELECT id FROM fantasies WHERE status IN ('published','matching') ORDER BY created_at DESC LIMIT 150"
+    ).fetchall()
+    created = 0
+    for fantasy in fantasies:
+        created += refresh_matches_for_fantasy(con, fantasy["id"])
+    return created
 
 
 def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.Row | None = None) -> dict[str, Any]:
@@ -541,6 +729,94 @@ def me(authorization: str | None = Header(default=None)):
     return identity_public(current_identity(authorization))
 
 
+@app.put("/api/me/profile")
+def update_profile(info: ProfileUpdate, authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    clean_skills = []
+    seen = set()
+    for skill in info.skills:
+        value = skill.strip()
+        if value and value.lower() not in seen:
+            seen.add(value.lower())
+            clean_skills.append(value)
+    con = db()
+    con.execute(
+        "UPDATE identities SET region=?,skills=?,availability=?,travel_radius_km=?,bio=?,adult_discovery=? WHERE id=?",
+        (
+            info.region.strip(),
+            json_dump(clean_skills),
+            info.availability.strip(),
+            info.travel_radius_km,
+            info.bio.strip(),
+            1 if info.adult_discovery else 0,
+            person["id"],
+        ),
+    )
+    refresh_matches_for_identity(con, person["id"])
+    con.commit()
+    row = con.execute("SELECT * FROM identities WHERE id=?", (person["id"],)).fetchone()
+    con.close()
+    return identity_public(row)
+
+
+@app.get("/api/me/matches")
+def my_matches(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    rows = con.execute(
+        """
+        SELECT ms.*, f.title, f.kind, f.mode, f.region AS fantasy_region,
+               r.name AS role_name, r.description AS role_description,
+               i.nickname AS owner_nickname
+        FROM match_suggestions ms
+        JOIN fantasies f ON f.id=ms.fantasy_id
+        JOIN roles r ON r.id=ms.role_id
+        JOIN identities i ON i.id=f.owner_id
+        WHERE ms.identity_id=? AND ms.status='suggested'
+          AND f.status IN ('published','matching')
+        ORDER BY ms.score DESC, ms.created_at DESC
+        LIMIT 60
+        """,
+        (person["id"],),
+    ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["reasons"] = json_load(item["reasons"], [])
+        out.append(item)
+    con.close()
+    return out
+
+
+@app.get("/api/notifications")
+def list_notifications(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    rows = con.execute(
+        "SELECT * FROM notifications WHERE recipient_id=? ORDER BY created_at DESC LIMIT 100",
+        (person["id"],),
+    ).fetchall()
+    con.close()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/notifications/{notification_id}/read")
+def read_notification(notification_id: str, authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    row = con.execute(
+        "SELECT id FROM notifications WHERE id=? AND recipient_id=?",
+        (notification_id, person["id"]),
+    ).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "ההתראה לא נמצאה")
+    con.execute("UPDATE notifications SET read_at=? WHERE id=?", (now(), notification_id))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
 @app.post("/api/me/dnd")
 def set_dnd(enabled: bool = Query(...), authorization: str | None = Header(default=None)):
     person = current_identity(authorization)
@@ -671,6 +947,8 @@ def create_fantasy(info: FantasyCreate, authorization: str | None = Header(defau
     con.commit()
     row = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
     payload = fantasy_payload(con, row, owner)
+    refresh_matches_for_fantasy(con, fantasy_id)
+    con.commit()
     con.close()
     return payload
 
@@ -761,6 +1039,18 @@ def decide_application(
         con.close()
         raise HTTPException(403, "אין הרשאה לעדכן את המועמדות")
     con.execute("UPDATE applications SET status=?,updated_at=? WHERE id=?", (info.status, now(), application_id))
+    if info.status == "accepted":
+        fantasy = con.execute("SELECT title,kind FROM fantasies WHERE id=?", (row["fantasy_id"],)).fetchone()
+        label = "המשאלה" if fantasy and fantasy["kind"] == "general" else "הפנטזיה"
+        add_notification(
+            con,
+            row["applicant_id"],
+            "application_accepted",
+            f"המועמדות שלך התקבלה עבור {label}: {fantasy['title'] if fantasy else ''}",
+            row["fantasy_id"],
+            row["role_id"],
+            row["owner_id"],
+        )
     con.commit()
     con.close()
     return {"ok": True, "status": info.status}

@@ -90,10 +90,13 @@ async function restoreSession(){
 function enterApp(){
   $('#gate').classList.remove('open'); $('#app').classList.remove('hidden');
   $('#logoutBtn').classList.remove('hidden'); $('#dndBtn').classList.remove('hidden'); $('#meBadge').classList.remove('hidden');
+  if($('#profileBtn'))$('#profileBtn').classList.remove('hidden');
+  if($('#notificationsBtn'))$('#notificationsBtn').classList.remove('hidden');
   $('#meBadge').textContent = `${state.me.nickname} · ${state.me.age}`;
   $('#dndBtn').textContent = `בהפסקה: ${state.me.dnd ? 'פעיל' : 'כבוי'}`;
   applyTrackUI();
   loadFeed();
+  if(typeof refreshMatchUi==='function') refreshMatchUi();
 }
 
 $('#enterBtn').onclick = async () => {

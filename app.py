@@ -301,6 +301,8 @@ class SessionCreate(BaseModel):
 
 class ProfileUpdate(BaseModel):
     region: str = Field(default="", max_length=80)
+    marital_status: str = Field(default="prefer_not_to_say", max_length=40)
+    relationship_status: str = Field(default="prefer_not_to_say", max_length=40)
     skills: list[str] = Field(default_factory=list, max_length=30)
     availability: str = Field(default="", max_length=160)
     travel_radius_km: int = Field(default=0, ge=0, le=500)
@@ -901,9 +903,11 @@ def update_profile(info: ProfileUpdate, authorization: str | None = Header(defau
             clean_skills.append(value)
     con = db()
     con.execute(
-        "UPDATE identities SET region=?,skills=?,availability=?,travel_radius_km=?,bio=?,adult_discovery=? WHERE id=?",
+        "UPDATE identities SET region=?,marital_status=?,relationship_status=?,skills=?,availability=?,travel_radius_km=?,bio=?,adult_discovery=? WHERE id=?",
         (
             info.region.strip(),
+            info.marital_status,
+            info.relationship_status,
             json_dump(clean_skills),
             info.availability.strip(),
             info.travel_radius_km,
@@ -1038,10 +1042,10 @@ def get_fantasy(fantasy_id: str, authorization: str | None = Header(default=None
     row = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
     if not row:
         con.close()
-        raise HTTPException(404, "הפנטזיה לא נמצאה")
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
     if row["visibility"] == "private" and row["owner_id"] != viewer["id"]:
         con.close()
-        raise HTTPException(404, "הפנטזיה לא נמצאה")
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
     if blocked_between(con, viewer["id"], row["owner_id"]):
         con.close()
         raise HTTPException(403, "אין גישה בין המשתמשים")
@@ -1125,10 +1129,10 @@ def apply_to_fantasy(
     role = con.execute("SELECT * FROM roles WHERE id=? AND fantasy_id=?", (info.role_id, fantasy_id)).fetchone()
     if not fantasy or not role:
         con.close()
-        raise HTTPException(404, "הפנטזיה או התפקיד לא נמצאו")
+        raise HTTPException(404, "הפרסום או התפקיד לא נמצאו")
     if fantasy["owner_id"] == applicant["id"]:
         con.close()
-        raise HTTPException(400, "אי אפשר להגיש מועמדות לפנטזיה שלך")
+        raise HTTPException(400, "אי אפשר להגיש מועמדות לפרסום שלך")
     if blocked_between(con, applicant["id"], fantasy["owner_id"]):
         con.close()
         raise HTTPException(403, "אין גישה בין המשתמשים")
@@ -1177,7 +1181,7 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
     if not fantasy or fantasy["owner_id"] != owner["id"]:
         con.close()
-        raise HTTPException(403, "רק מפרסם הפנטזיה יכול לראות מועמדויות")
+        raise HTTPException(403, "רק מפרסם/ת המשאלה או הפנטזיה יכול/ה לראות מועמדויות")
     rows = con.execute(
         """
         SELECT a.*, i.nickname, i.age, i.gender, i.region, r.name AS role_name
@@ -1479,7 +1483,7 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
         fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (info.fantasy_id,)).fetchone()
         if not fantasy:
             con.close()
-            raise HTTPException(404, "הפנטזיה לא נמצאה")
+            raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
     message_id = uid()
     con.execute(
         "INSERT INTO messages (id,sender_id,recipient_id,text,fantasy_id,created_at) VALUES (?,?,?,?,?,?)",
@@ -1745,7 +1749,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
                 json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": info.track_hint},
             )
         if response.status_code >= 400:
-            raise HTTPException(502, "מורין לא הצליחה לעבד את הפנטזיה כרגע")
+            raise HTTPException(502, "מורין לא הצליחה לעבד את הבקשה כרגע")
         result = response.json()
     else:
         api_key = os.environ.get("OPENROUTER_API_KEY")

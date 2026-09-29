@@ -2,7 +2,7 @@ async function loadFeed(){
   if(!state.me) return;
   const p=new URLSearchParams();
   const q=$('#searchInput').value.trim(), region=$('#regionFilter').value.trim();
-  if(q)p.set('q',q); if(region)p.set('region',region);
+  if(q)p.set('q',q); if(region)p.set('region',region); p.set('kind',state.track);
   try{
     state.fantasies=await api('/api/fantasies?'+p.toString()); renderFeed();
   }catch(err){toast(err.message)}
@@ -13,7 +13,7 @@ function renderFeed(){
     const card=document.createElement('article'); card.className='fantasy-card';
     const matches=f.roles.filter(r=>r.eligible).length;
     card.innerHTML=`
-      <div class="eyebrow">${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
+      <div class="eyebrow">${escapeHtml(labels.kind[f.kind]||f.kind)} · ${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
       <h3>${escapeHtml(f.title)}</h3>
       <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
       <p class="fantasy-desc">${escapeHtml(f.description)}</p>
@@ -31,7 +31,7 @@ async function openFantasy(id){
     const f=await api(`/api/fantasies/${id}`); const mine=f.owner.id===state.me.id;
     const root=$('#fantasyDetail'); root.className='fantasy-detail';
     root.innerHTML=`
-      <div class="eyebrow">${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
+      <div class="eyebrow">${escapeHtml(labels.kind[f.kind]||f.kind)} · ${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
       <h2>${escapeHtml(f.title)}</h2>
       <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
       <p class="detail-description">${escapeHtml(f.description)}</p>

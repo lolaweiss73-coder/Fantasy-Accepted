@@ -37,6 +37,7 @@ $('#fantasyForm').onsubmit=async(e)=>{
     title:$('#fantasyTitle').value.trim(), description:$('#fantasyDescription').value.trim(), original_text:$('#fantasyDescription').dataset.original||'',
     mode:$('#fantasyMode').value, tags:$('#fantasyTags').value.split(',').map(x=>x.trim()).filter(Boolean), region:$('#fantasyRegion').value.trim(), visibility:$('#fantasyVisibility').value,
     owner_participates:$('#ownerParticipates').value==='yes',
+    kind:$('#fantasyKind').value||state.track,
     roles:collectRoles()
   };
   if(payload.roles.some(r=>!r.name)){ $('#createStatus').textContent='צריך שם לכל תפקיד'; return; }
@@ -95,6 +96,7 @@ function resetFantasyComposer(){
   $('#fantasyDescription').dataset.original='';
   $('#createStatus').textContent='';
   $('#ownerParticipates').value='yes';
+  $('#fantasyKind').value=state.track;
   $('#morinReviewNote').textContent='';
   $('#morinReviewNote').classList.add('hidden');
   $('#rolesEditor').replaceChildren();
@@ -331,7 +333,7 @@ $('#morinStructureBtn').onclick=async()=>{
     const result=await api('/api/morin/structure',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text,previous_questions:morinPendingQuestions})
+      body:JSON.stringify({text,previous_questions:morinPendingQuestions,track_hint:$('#fantasyKind').value||state.track})
     });
     if(result.blocked_reason){$('#morinStatus').textContent=result.blocked_reason;return}
 
@@ -368,6 +370,10 @@ $('#morinStructureBtn').onclick=async()=>{
     $('#fantasyDescription').value=result.description||text;
     $('#fantasyDescription').dataset.original=text;
     $('#ownerParticipates').value=result.owner_participates===false?'no':'yes';
+    if(result.kind && ['general','adult'].includes(result.kind)){
+      $('#fantasyKind').value=result.kind;
+      if(result.kind!==state.track)setTrack(result.kind,{reload:false});
+    }
     if(result.mode && ['online','meeting','either'].includes(result.mode))$('#fantasyMode').value=result.mode;
     $('#fantasyTags').value=(result.tags||[]).join(', ');
     $('#rolesEditor').replaceChildren();

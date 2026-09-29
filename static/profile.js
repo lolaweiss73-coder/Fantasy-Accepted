@@ -66,7 +66,7 @@ function matchCard(item){
   el.className='match-card';
   const reasons=(item.reasons||[]).map(r=>`<span class="tag">${escapeHtml(r)}</span>`).join('');
   el.innerHTML=`
-    <div class="row-top"><strong>${escapeHtml(item.title)}</strong><span class="match-score">${Number(item.score)}% התאמה</span></div>
+    <div class="row-top"><strong>${escapeHtml(item.title)}</strong><span class="match-score">ציון התאמה ${Number(item.score)}/100</span></div>
     <div class="muted">תפקיד: ${escapeHtml(item.role_name)} · מאת ${escapeHtml(item.owner_nickname)}${item.fantasy_region?` · ${escapeHtml(item.fantasy_region)}`:''}</div>
     ${item.role_description?`<p>${escapeHtml(item.role_description)}</p>`:''}
     <div class="tag-row">${reasons}</div>

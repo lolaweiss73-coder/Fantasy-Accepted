@@ -183,8 +183,72 @@
       </div>
       <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים ואני מבינ/ה שהשירות מיועד למבוגרים בלבד.</label>
       <button id="enterBtn" class="primary large">כניסה ל־Fantasy Accepted</button>
+      <button id="welcomeMorinBtn" class="morin-outline large" type="button">💬 מה זה האתר? דברו עם מורין</button>
       <div id="gateError" class="error"></div>
       <p class="fineprint">המיקום המוצג באתר הוא כללי בלבד. כתובת ומועד מדויקים נשארים בשיחה פרטית.</p>
+    </div>
+  </div>
+
+
+  <div id="welcomeMorinModal" class="overlay">
+    <div class="modal-card morin-card welcome-morin-card">
+      <button class="close-btn" data-close="welcomeMorinModal">×</button>
+      <div class="morin-header">
+        <div class="morin-orb">◉</div>
+        <div><div class="eyebrow">MORIN</div><h2>היי, אני מורין. אסביר לך מה קורה פה.</h2></div>
+      </div>
+
+      <div id="welcomeMorinChat" class="welcome-chat">
+        <div class="welcome-bubble morin-bubble">
+          Fantasy Accepted הוא מקום לבני 18+ שבו מתחילים ממשאלה או פנטזיה — מינית או לא־מינית — ולא מטופס קר ומסורבל.
+        </div>
+        <div class="welcome-bubble morin-bubble">
+          מספרים לי מה רוצים. אני עוזרת להבין מי אמור להשתתף, מה חסר, אילו פרטים חשובים להתאמה, ואם משהו לא ברור אני שואלת. רק אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם.
+        </div>
+        <div class="welcome-bubble morin-bubble">
+          אחרי הפרסום אנשים שמתאימים לתפקידים החסרים יכולים למצוא את הפנטזיה ולהציע את עצמם. היוזם כבר נחשב קיים — אלא אם הוא רק מארגן משהו עבור אחרים.
+        </div>
+      </div>
+
+      <div id="welcomeMorinActions" class="welcome-actions">
+        <button id="welcomeHowBtn" class="ghost" type="button">איך זה עובד בפועל?</button>
+        <button id="welcomeFromAviBtn" class="morin-outline" type="button">אבי שלח לי את הקישור</button>
+        <button id="welcomeDoneBtn" class="primary" type="button">הבנתי — בואי ניכנס</button>
+      </div>
+
+      <div id="welcomeHowStep" class="welcome-step hidden">
+        <div class="welcome-bubble morin-bubble">
+          דוגמה: אפשר לומר “אני רוצה שמישהו יבוא לגרושה שלי וישיר לה שיר”. אני אבין שהיוזם הוא מארגן בלבד, שהאדם החסר הוא מבצע/ת, ואשאל רק שאלות שבאמת משפיעות על ההתאמה.
+        </div>
+      </div>
+
+      <div id="welcomeAviStep" class="welcome-step hidden">
+        <div class="welcome-bubble morin-bubble">אבי אולי השאיר לך הודעה אישית. מה ראשי התיבות של השם שלך?</div>
+        <div class="welcome-inline">
+          <input id="welcomeInitials" maxlength="8" placeholder="למשל א״ס">
+          <button id="welcomeInitialsBtn" class="primary" type="button">המשך</button>
+        </div>
+      </div>
+
+      <div id="welcomeAnnetteConfirm" class="welcome-step hidden">
+        <div class="welcome-bubble morin-bubble">רק כדי לוודא — את אנט סמירנוף?</div>
+        <div class="welcome-actions">
+          <button id="welcomeAnnetteYes" class="primary" type="button">כן</button>
+          <button id="welcomeAnnetteNo" class="ghost" type="button">לא</button>
+        </div>
+      </div>
+
+      <div id="welcomePersonalMessage" class="welcome-step hidden">
+        <div class="welcome-bubble morin-bubble">
+          אנט, אבי ביקש ממני למסור לך משהו אישי. מאחורי הבחירות הלא־שגרתיות שאת רואה עכשיו עומד אצלו חזון יזמי ארוך טווח, לא רק “עוד אתר”.
+        </div>
+        <div class="welcome-bubble morin-bubble">
+          הוא עובד על כמה רעיונות שהוא מאמין שיכולים לשנות תחומים שלמים — למשל טכנולוגיית ריח לסרטים ול־VR, ומיזם EL של מוצרים שנועדו להחזיק מעמד זמן קיצוני כדי להפחית את הצורך לקנות שוב ושוב.
+        </div>
+        <div class="welcome-bubble morin-bubble">
+          הוא גם חושב הרבה על ההשפעה הכלכלית של בינה מלאכותית ועל דרכים להוריד יוקר מחיה ולתת לאנשים יותר ביטחון ומשמעות. הוא ביקש שאגיד לך שהשאיפות שלו הרבה יותר גדולות מהמצב שבו הוא נמצא היום — ושזה בדיוק הפער שהוא מתכוון לסגור.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -228,6 +292,7 @@
 
   <div id="toast" class="toast"></div>
   <script src="/static/core.js" defer></script>
+  <script src="/static/onboarding.js?v=20260929-onboarding1" defer></script>
   <script src="/static/feed.js" defer></script>
   <script src="/static/create.js?v=20260929-flow7" defer></script>
   <script src="/static/inbox.js" defer></script>

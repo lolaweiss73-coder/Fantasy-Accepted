@@ -52,7 +52,7 @@ function showView(name){
 }
 function applyTrackUI(){
   const adult=state.track==='adult';
-  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===state.track));
+  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===state.track));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
   if($('#feedTitle'))$('#feedTitle').textContent=adult?'מה הפנטזיה שלך?':'מה היית רוצה שיקרה?';
   if($('#feedLead'))$('#feedLead').textContent=adult
@@ -76,7 +76,7 @@ function setTrack(track,{reload=true}={}){
   if(reload && state.me)loadFeed();
 }
 
-$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
+$$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
   setTrack(btn.dataset.track);
 }));
 

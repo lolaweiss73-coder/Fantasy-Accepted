@@ -22,7 +22,7 @@
       </div>
     </div>
     <div class="top-actions">
-      <button id="adminBtn" class="ghost admin-btn" type="button" aria-label="ניהול האתר">⚙️ ניהול</button>
+      <button id="adminBtn" class="ghost admin-btn" type="button" aria-label="ניהול האתר" title="ניהול האתר">⚙️</button>
       <button id="notificationsBtn" class="ghost hidden" type="button" aria-label="התראות">🔔 <span id="notificationsBadge" class="notification-badge hidden">0</span></button>
       <button id="profileBtn" class="ghost hidden" type="button">👤 פרופיל</button>
       <span id="meBadge" class="user-badge hidden"></span>
@@ -113,10 +113,10 @@
             <input id="fantasyTags" placeholder="מופרדות בפסיקים">
           </label>
 
-          <label>יוזם/ת הפנטזיה
+          <label><span id="ownerParticipationLabel">יוזם/ת המשאלה</span>
             <select id="ownerParticipates">
-              <option value="yes">משתתף/ת אוטומטית — כבר בפנים</option>
-              <option value="no">מארגן/ת בלבד — הפנטזיה מיועדת לאחרים</option>
+              <option id="ownerParticipatesYes" value="yes">משתתף/ת אוטומטית — כבר בפנים</option>
+              <option id="ownerParticipatesNo" value="no">מארגן/ת בלבד — המשאלה מיועדת לאחרים</option>
             </select>
           </label>
 
@@ -176,7 +176,7 @@
     <div class="modal-card gate-card">
       <div class="eyebrow">משאלה התקבלה · FANTASY ACCEPTED</div>
       <h1>יש משהו שהיית רוצה שיקרה?</h1>
-      <p class="lead">זה המקום להתחיל ממנו. מחווה למישהו, עזרה, יצירה, חוויה, הפתעה, שותף לרעיון — וגם פנטזיה אינטימית למבוגרים.</p>
+      <p class="lead">ספרו למורין משהו שהייתם רוצים שיקרה. היא תעזור להבין מי או מה חסר, למצוא התאמות, וללוות את המשאלה עד לביצוע.</p>
 
       <div class="gate-track-grid" aria-label="בחירת מסלול">
         <button class="track-choice active" data-track="general" type="button">
@@ -189,7 +189,16 @@
         </button>
       </div>
 
-      <button id="welcomeMorinBtn" class="morin-outline large" type="button">💬 לא בטוחים? דברו עם מורין</button>
+      <div class="gate-steps" aria-label="איך זה עובד">
+        <div class="gate-step"><strong>1</strong><span>מספרים למורין מה רוצים</span></div>
+        <div class="gate-step"><strong>2</strong><span>מורין מבינה מי חסר ומחפשת התאמות</span></div>
+        <div class="gate-step"><strong>3</strong><span>מתחברים ומקדמים את המשאלה עד להגשמה</span></div>
+      </div>
+
+      <div class="gate-secondary-actions">
+        <button id="welcomeMorinBtn" class="morin-outline large" type="button">💬 לא בטוחים? דברו עם מורין</button>
+        <button id="nameStoryBtn" class="ghost" type="button">למה Fantasy Accepted?</button>
+      </div>
 
       <div class="gate-divider"><span>כניסה לאתר</span></div>
       <div class="form-grid two">
@@ -208,29 +217,11 @@
           </select>
         </label>
         <label>אזור<input id="region" maxlength="80" placeholder="אזור כללי בלבד"></label>
-        <label>מצב משפחתי
-          <select id="maritalStatus">
-            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
-            <option value="single">רווק/ה</option>
-            <option value="married">נשוי/אה</option>
-            <option value="divorced">גרוש/ה</option>
-            <option value="widowed">אלמן/ה</option>
-          </select>
-        </label>
-        <label>סטטוס זוגי
-          <select id="relationshipStatus">
-            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
-            <option value="single">לא בזוגיות</option>
-            <option value="relationship">בזוגיות</option>
-            <option value="open">בזוגיות פתוחה</option>
-            <option value="poly">פוליאמורי/ת</option>
-          </select>
-        </label>
       </div>
       <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה שני המסלולים מיועדים כרגע למבוגרים.</label>
       <button id="enterBtn" class="primary large">כניסה ל־משאלה התקבלה</button>
       <div id="gateError" class="error"></div>
-      <p class="fineprint">המסלול הכללי והמסלול למבוגרים מופרדים זה מזה. המיקום המוצג באתר הוא כללי בלבד; פרטים מדויקים נשארים בשיחה פרטית.</p>
+      <p class="fineprint">בשלב ההשקה השירות מיועד לבני 18 ומעלה. המסלול הכללי והמסלול למבוגרים מופרדים זה מזה, והמיקום הציבורי נשאר כללי בלבד.</p>
     </div>
   </div>
 
@@ -298,6 +289,17 @@
     </div>
   </div>
 
+
+  <div id="nameStoryModal" class="overlay">
+    <div class="modal-card name-story-card">
+      <button class="close-btn" data-close="nameStoryModal">×</button>
+      <div class="eyebrow">WHY FANTASY ACCEPTED?</div>
+      <h2>כי לפעמים התשובה הכי טובה ל״זה נשמע בלתי אפשרי״ היא: Accepted.</h2>
+      <p>השם <strong>Fantasy Accepted</strong> הוא קריצה ל־<strong>Challenge Accepted</strong> של בארני סטינסון מ״איך פגשתי את אמא״.</p>
+      <p>הרעיון כאן פשוט: אתם אומרים משהו שהייתם רוצים שיקרה — קטן, גדול, מצחיק, מרגש או אינטימי — והמערכת מתחילה לחפש איך להפוך אותו למשהו שאפשר באמת לקדם.</p>
+      <a class="primary video-link" href="https://www.youtube.com/watch?v=4iOi_iPNC50" target="_blank" rel="noopener noreferrer">▶ לראות את Challenge Accepted</a>
+    </div>
+  </div>
 
   <div id="adminModal" class="overlay">
     <div class="modal-card admin-card">
@@ -375,6 +377,27 @@
         </label>
       </div>
 
+      <div class="form-grid two optional-profile-details">
+        <label>מצב משפחתי — אופציונלי
+          <select id="profileMaritalStatus">
+            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+            <option value="single">רווק/ה</option>
+            <option value="married">נשוי/אה</option>
+            <option value="divorced">גרוש/ה</option>
+            <option value="widowed">אלמן/ה</option>
+          </select>
+        </label>
+        <label>סטטוס זוגי — אופציונלי
+          <select id="profileRelationshipStatus">
+            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+            <option value="single">לא בזוגיות</option>
+            <option value="relationship">בזוגיות</option>
+            <option value="open">בזוגיות פתוחה</option>
+            <option value="poly">פוליאמורי/ת</option>
+          </select>
+        </label>
+      </div>
+
       <label>מה אני יודע/ת או רוצה לעשות
         <input id="profileSkills" maxlength="600" placeholder="למשל: שירה, צילום, נהיגה, בישול, עיצוב, נגינה">
       </label>
@@ -446,13 +469,13 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="/static/core.js" defer></script>
+  <script src="/static/core.js?v=20260929-ux1" defer></script>
   <script src="/static/admin.js?v=20260929-admin4" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
-  <script src="/static/profile.js?v=20260929-record1" defer></script>
+  <script src="/static/profile.js?v=20260929-ux1" defer></script>
   <script src="/static/feed.js?v=20260929-record1" defer></script>
   <script src="/static/workflow.js?v=20260929-workflow1" defer></script>
-  <script src="/static/create.js?v=20260929-tracks1" defer></script>
+  <script src="/static/create.js?v=20260929-ux1" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>
 </html>

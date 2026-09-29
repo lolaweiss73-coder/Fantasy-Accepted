@@ -693,7 +693,11 @@ def test_split_site_template_and_adult_gate_regression():
     assert "fa:adult-gate-accepted" in core
     assert "adultAgeGate" in template
     assert 'data-site-mode="__SITE_MODE__"' in template
+    assert 'data-welcome-audio="__WELCOME_AUDIO__"' in template
+    assert 'id="welcomeTextOnly"' in template
+    assert 'data-track="adult"' not in template
     assert "maybeOpenWelcome" in onboarding
+    assert "playRecordedWelcome" in onboarding
     assert "fa:adult-gate-accepted" in onboarding
     assert not (root / "static" / "index.html").exists()
 

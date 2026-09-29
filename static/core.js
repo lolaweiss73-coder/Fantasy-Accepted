@@ -8,6 +8,7 @@ const state = {
   activeConversation: null,
   inbox: [],
   roleCount: 0,
+  track: localStorage.getItem('faTrack') === 'adult' ? 'adult' : 'general',
 };
 
 const labels = {
@@ -16,6 +17,7 @@ const labels = {
   },
   mode: {online:'אונליין', meeting:'מפגש', either:'אונליין או מפגש'},
   status: {pending:'ממתינה', shortlisted:'ברשימה', accepted:'התקבלה', rejected:'נדחתה', withdrawn:'נמשכה'},
+  kind: {general:'משאלה כללית', adult:'פנטזיה למבוגרים'},
 };
 
 function escapeHtml(value='') {
@@ -46,6 +48,30 @@ function showView(name){
   if(name === 'feed') loadFeed();
   if(name === 'inbox') loadInbox();
 }
+function applyTrackUI(){
+  const adult=state.track==='adult';
+  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===state.track));
+  if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
+  if($('#feedTitle'))$('#feedTitle').textContent=adult?'מה הפנטזיה שלך?':'מה היית רוצה שיקרה?';
+  if($('#feedLead'))$('#feedLead').textContent=adult
+    ?'ספרו למורין על פנטזיה למבוגרים. היא תעזור להבין מי חסר ומה חשוב להתאמה.'
+    :'מחווה, עזרה, יצירה, חוויה, הפתעה או רעיון אחר — ספרו למורין מה הייתם רוצים להגשים.';
+  if($('#feedEmpty'))$('#feedEmpty').textContent=adult?'עדיין אין פנטזיות שמתאימות לחיפוש.':'עדיין אין משאלות שמתאימות לחיפוש.';
+  if($('#createHeading'))$('#createHeading').textContent=adult?'יצירת פנטזיה':'יצירת משאלה';
+  if($('#fantasyKind'))$('#fantasyKind').value=state.track;
+}
+
+function setTrack(track,{reload=true}={}){
+  state.track=track==='adult'?'adult':'general';
+  localStorage.setItem('faTrack',state.track);
+  applyTrackUI();
+  if(reload && state.me)loadFeed();
+}
+
+$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
+  setTrack(btn.dataset.track);
+}));
+
 function formatDate(ts){ return new Date(ts*1000).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
 async function restoreSession(){
@@ -62,6 +88,7 @@ function enterApp(){
   $('#logoutBtn').classList.remove('hidden'); $('#dndBtn').classList.remove('hidden'); $('#meBadge').classList.remove('hidden');
   $('#meBadge').textContent = `${state.me.nickname} · ${state.me.age}`;
   $('#dndBtn').textContent = `בהפסקה: ${state.me.dnd ? 'פעיל' : 'כבוי'}`;
+  applyTrackUI();
   loadFeed();
 }
 

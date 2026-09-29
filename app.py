@@ -13,13 +13,14 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from storage import DATA_DIR, INTEGRITY_ERRORS, backend_name, db
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+TEMPLATE_DIR = BASE_DIR / "templates"
 
 SITE_MODE = os.environ.get("SITE_MODE", "general").strip().lower()
 if SITE_MODE not in {"general", "adult"}:
@@ -763,7 +764,7 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
 
 @app.get("/")
 def home():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("__SITE_MODE__", SITE_MODE)
     return HTMLResponse(html)
 

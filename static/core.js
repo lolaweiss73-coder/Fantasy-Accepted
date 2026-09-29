@@ -17,7 +17,7 @@ const labels = {
   },
   mode: {online:'אונליין', meeting:'מפגש', either:'אונליין או מפגש'},
   status: {pending:'ממתינה', shortlisted:'ברשימה', accepted:'התקבלה', rejected:'נדחתה', withdrawn:'נמשכה'},
-  workflow: {published:'פורסמה', matching:'מחפשת התאמות', connected:'מחוברת', in_progress:'בביצוע', fulfilled_pending:'ממתינה לאישור הגשמה', fulfilled:'הוגשמה ✓', cancelled:'בוטלה'},
+  workflow: {published:'פורסמה', matching:'מחפשת התאמות', connected:'מחוברת', in_progress:'בביצוע', fulfilled_pending:'ממתינה לאישור הגשמה', fulfilled:'הוגשמה ✓', cancelled:'בוטלה', hidden:'מוסתרת'},
   kind: {general:'משאלה כללית', adult:'פנטזיה למבוגרים'},
 };
 

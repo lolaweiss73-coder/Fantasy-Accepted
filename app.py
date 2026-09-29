@@ -95,6 +95,7 @@ def init_db() -> None:
             visibility TEXT NOT NULL DEFAULT 'public',
             status TEXT NOT NULL DEFAULT 'published',
             owner_participates INTEGER NOT NULL DEFAULT 1,
+            kind TEXT NOT NULL DEFAULT 'adult',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
@@ -179,6 +180,15 @@ def init_db() -> None:
     if not column_exists:
         con.execute("ALTER TABLE fantasies ADD COLUMN owner_participates INTEGER NOT NULL DEFAULT 1")
 
+    if getattr(con, "postgres", False):
+        kind_exists = con.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='fantasies' AND column_name='kind'"
+        ).fetchone()
+    else:
+        kind_exists = any(row["name"] == "kind" for row in con.execute("PRAGMA table_info(fantasies)").fetchall())
+    if not kind_exists:
+        con.execute("ALTER TABLE fantasies ADD COLUMN kind TEXT NOT NULL DEFAULT 'adult'")
+
     con.commit()
     con.close()
 
@@ -218,6 +228,7 @@ class FantasyCreate(BaseModel):
     region: str = Field(default="", max_length=80)
     visibility: str = Field(default="public", pattern="^(public|limited|private)$")
     owner_participates: bool = True
+    kind: str = Field(default="adult", pattern="^(general|adult)$")
     roles: list[RoleInput] = Field(min_length=1, max_length=12)
 
 
@@ -246,6 +257,7 @@ class ReportCreate(BaseModel):
 class MorinStructureRequest(BaseModel):
     text: str = Field(min_length=10, max_length=12000)
     previous_questions: list[str] = Field(default_factory=list, max_length=2)
+    track_hint: str | None = Field(default=None, pattern="^(general|adult)$")
 
 
 class MorinTranscribeRequest(BaseModel):
@@ -328,6 +340,7 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
         "visibility": row["visibility"],
         "status": row["status"],
         "owner_participates": bool(row["owner_participates"]),
+        "kind": row["kind"],
         "roles": role_items,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -403,6 +416,7 @@ def list_fantasies(
     q: str = Query(default="", max_length=100),
     tag: str = Query(default="", max_length=60),
     region: str = Query(default="", max_length=80),
+    kind: str = Query(default="", pattern="^(|general|adult)$"),
     authorization: str | None = Header(default=None),
 ):
     viewer = current_identity(authorization)
@@ -422,6 +436,9 @@ def list_fantasies(
     if region:
         clauses.append("(f.region='' OR f.region=?)")
         params.append(region)
+    if kind:
+        clauses.append("f.kind=?")
+        params.append(kind)
     rows = con.execute(
         f"SELECT f.* FROM fantasies f WHERE {' AND '.join(clauses)} ORDER BY f.created_at DESC LIMIT 100",
         params,
@@ -475,7 +492,7 @@ def create_fantasy(info: FantasyCreate, authorization: str | None = Header(defau
     ts = now()
     con = db()
     con.execute(
-        "INSERT INTO fantasies (id,owner_id,title,description,original_text,mode,tags,region,visibility,status,owner_participates,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO fantasies (id,owner_id,title,description,original_text,mode,tags,region,visibility,status,owner_participates,kind,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             fantasy_id,
             owner["id"],
@@ -488,6 +505,7 @@ def create_fantasy(info: FantasyCreate, authorization: str | None = Header(defau
             info.visibility,
             "published",
             1 if info.owner_participates else 0,
+            info.kind,
             ts,
             ts,
         ),
@@ -772,7 +790,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
                     "Authorization": f"Bearer {gateway_token}",
                     "Content-Type": "application/json",
                 },
-                json={"text": info.text, "previous_questions": info.previous_questions},
+                json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": info.track_hint},
             )
         if response.status_code >= 400:
             raise HTTPException(502, "מורין לא הצליחה לעבד את הפנטזיה כרגע")
@@ -787,16 +805,17 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "You are Morin inside Fantasy Accepted. Convert an adult user's free-text fantasy into neutral structured metadata. "
             "All participants on this service must be 18+. Never invent missing ages, genders, locations, or consent conditions. "
             "If the text appears to request sexual involvement of a minor, return JSON with blocked_reason and no fantasy fields. "
-            "Return strict JSON only with keys: title, description, mode, tags, roles, blocked_reason, morin_response, clarifying_questions, ready_to_draft, owner_participates. "
+            "The service supports both general wishes and adult fantasies. Return strict JSON only with keys: title, description, mode, tags, roles, blocked_reason, morin_response, clarifying_questions, ready_to_draft, owner_participates, kind. "
             "roles is an array of external people still needed, each {name, description, capacity, min_age, max_age, allowed_genders, region}. "
             "Do not create a role for the fantasy creator. Set owner_participates true if the creator is part of the fantasy, false if they are only arranging it for others. "
+            "kind must be general for non-sexual wishes and adult for sexual/adult fantasies. Respect track_hint when supplied unless the content clearly belongs in the adult track. "
             "Ask at most two clarifying questions, and only when an ambiguity materially affects matching. Use null or empty arrays for unknown values; min_age must never be below 18."
         )
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": info.text + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
+                {"role": "user", "content": info.text + (("\nTrack hint: " + info.track_hint) if info.track_hint else "") + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
             ],
             "temperature": 0.2,
         }
@@ -835,6 +854,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         questions = []
     result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
     result["owner_participates"] = bool(result.get("owner_participates", True))
+    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else (info.track_hint or "general"))
     result["morin_response"] = str(result.get("morin_response") or "").strip()
     result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
 

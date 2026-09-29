@@ -18,7 +18,7 @@ function renderFeed(){
       <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
       <p class="fantasy-desc">${escapeHtml(f.description)}</p>
       <div class="tag-row">${f.tags.map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
-      <div class="role-chips">${f.roles.map(r=>`<span class="role-chip ${r.eligible?'match':'no-match'}">${escapeHtml(r.name)}${r.eligible?' ✓':''}</span>`).join('')}</div>
+      <div class="role-chips">${f.owner_participates?'<span class="role-chip match">יוזם/ת הפנטזיה ✓</span>':''}${f.roles.map(r=>`<span class="role-chip ${r.eligible?'match':'no-match'}">${escapeHtml(r.name)}${r.eligible?' ✓':''}</span>`).join('')}</div>
       <div class="card-actions"><button class="primary open-detail">פתיחה</button>${f.owner.id===state.me.id?'<button class="ghost manage-apps">מועמדויות</button>':matches?`<span class="status-pill">${matches} תפקידים מתאימים</span>`:''}</div>`;
     card.querySelector('.open-detail').onclick=()=>openFantasy(f.id);
     const manage=card.querySelector('.manage-apps'); if(manage) manage.onclick=()=>openApplications(f.id);
@@ -37,6 +37,7 @@ async function openFantasy(id){
       <p class="detail-description">${escapeHtml(f.description)}</p>
       <div class="tag-row">${f.tags.map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
       <h3>תפקידים</h3>
+      ${f.owner_participates?'<div class="role-detail"><h4>יוזם/ת הפנטזיה</h4><div class="muted">כבר משתתף/ת — לא נדרשת מועמדות.</div></div>':''}
       <div id="detailRoles"></div>
       <div class="card-actions">${mine?'<button id="detailApps" class="ghost">ניהול מועמדויות</button>':`<button id="messageOwner" class="ghost">שיחה פרטית עם ${escapeHtml(f.owner.nickname)}</button>`}<button id="reportFantasy" class="ghost">דיווח</button></div>`;
     const roles=$('#detailRoles');

@@ -17,6 +17,7 @@ const labels = {
   },
   mode: {online:'אונליין', meeting:'מפגש', either:'אונליין או מפגש'},
   status: {pending:'ממתינה', shortlisted:'ברשימה', accepted:'התקבלה', rejected:'נדחתה', withdrawn:'נמשכה'},
+  workflow: {published:'פורסמה', matching:'מחפשת התאמות', connected:'מחוברת', in_progress:'בביצוע', fulfilled_pending:'ממתינה לאישור הגשמה', fulfilled:'הוגשמה ✓', cancelled:'בוטלה'},
   kind: {general:'משאלה כללית', adult:'פנטזיה למבוגרים'},
 };
 
@@ -47,6 +48,7 @@ function showView(name){
   $('#sidebar').classList.remove('open');
   if(name === 'feed') loadFeed();
   if(name === 'inbox') loadInbox();
+  if(name === 'wishes' && typeof loadMyWishes==='function') loadMyWishes();
 }
 function applyTrackUI(){
   const adult=state.track==='adult';

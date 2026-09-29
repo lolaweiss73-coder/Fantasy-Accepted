@@ -268,7 +268,7 @@ class ReportCreate(BaseModel):
 
 
 class AnnouncementUpdate(BaseModel):
-    text: str = Field(min_length=1, max_length=220)
+    text: str = Field(default="", max_length=220)
 
 
 class MorinStructureRequest(BaseModel):

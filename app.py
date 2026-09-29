@@ -169,6 +169,13 @@ def init_db() -> None:
             updated_at REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS site_announcements (
+            id TEXT PRIMARY KEY,
+            text TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_fantasies_created ON fantasies(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_roles_fantasy ON roles(fantasy_id);
         CREATE INDEX IF NOT EXISTS idx_applications_fantasy ON applications(fantasy_id, created_at DESC);
@@ -201,6 +208,17 @@ def init_db() -> None:
             "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?)",
             ("announcement", "מזל טוב על הגרושים שלך מיסיס ר.ל.", now()),
         )
+        existing_announcement = {"value": "מזל טוב על הגרושים שלך מיסיס ר.ל."}
+
+    announcement_count = con.execute("SELECT COUNT(*) AS n FROM site_announcements").fetchone()["n"]
+    if announcement_count == 0:
+        legacy_text = (existing_announcement["value"] if existing_announcement else "").strip()
+        if legacy_text:
+            ts = now()
+            con.execute(
+                "INSERT INTO site_announcements (id,text,created_at,updated_at) VALUES (?,?,?,?)",
+                (uid(), legacy_text, ts, ts),
+            )
 
     con.commit()
     con.close()
@@ -268,7 +286,7 @@ class ReportCreate(BaseModel):
 
 
 class AnnouncementUpdate(BaseModel):
-    text: str = Field(default="", max_length=220)
+    text: str = Field(min_length=1, max_length=220)
 
 
 class MorinStructureRequest(BaseModel):
@@ -369,22 +387,7 @@ def home():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/api/announcement")
-def get_announcement():
-    con = db()
-    row = con.execute("SELECT value,updated_at FROM site_settings WHERE key='announcement'").fetchone()
-    con.close()
-    return {
-        "text": row["value"] if row else "",
-        "updated_at": row["updated_at"] if row else None,
-    }
-
-
-@app.post("/api/admin/announcement")
-def update_announcement(
-    info: AnnouncementUpdate,
-    x_admin_key: str | None = Header(default=None),
-):
+def require_admin(x_admin_key: str | None) -> None:
     configured_password = os.environ.get("ADMIN_PASSWORD", "")
     configured_hash = os.environ.get(
         "ADMIN_PASSWORD_HASH",
@@ -398,22 +401,95 @@ def update_announcement(
     if not valid:
         raise HTTPException(401, "סיסמת מנהל שגויה")
 
-    value = info.text.strip()
+
+@app.get("/api/announcements")
+def list_announcements():
     con = db()
-    row = con.execute("SELECT key FROM site_settings WHERE key='announcement'").fetchone()
-    if row:
-        con.execute(
-            "UPDATE site_settings SET value=?, updated_at=? WHERE key='announcement'",
-            (value, now()),
-        )
-    else:
-        con.execute(
-            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?)",
-            ("announcement", value, now()),
-        )
+    rows = con.execute(
+        "SELECT id,text,created_at,updated_at FROM site_announcements ORDER BY created_at ASC"
+    ).fetchall()
+    con.close()
+    return [
+        {
+            "id": row["id"],
+            "text": row["text"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+@app.get("/api/announcement")
+def get_announcement():
+    """Backward-compatible aggregate endpoint."""
+    con = db()
+    rows = con.execute("SELECT text FROM site_announcements ORDER BY created_at ASC").fetchall()
+    con.close()
+    return {"text": " ✦ ".join(row["text"] for row in rows)}
+
+
+@app.post("/api/admin/announcements")
+def add_announcement(
+    info: AnnouncementUpdate,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    value = info.text.strip()
+    if not value:
+        raise HTTPException(422, "הודעה לא יכולה להיות ריקה")
+    item_id = uid()
+    ts = now()
+    con = db()
+    con.execute(
+        "INSERT INTO site_announcements (id,text,created_at,updated_at) VALUES (?,?,?,?)",
+        (item_id, value, ts, ts),
+    )
     con.commit()
     con.close()
-    return {"ok": True, "text": value}
+    return {"id": item_id, "text": value, "created_at": ts, "updated_at": ts}
+
+
+@app.put("/api/admin/announcements/{announcement_id}")
+def edit_announcement(
+    announcement_id: str,
+    info: AnnouncementUpdate,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    value = info.text.strip()
+    if not value:
+        raise HTTPException(422, "הודעה לא יכולה להיות ריקה")
+    con = db()
+    row = con.execute("SELECT id FROM site_announcements WHERE id=?", (announcement_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "ההודעה לא נמצאה")
+    ts = now()
+    con.execute(
+        "UPDATE site_announcements SET text=?, updated_at=? WHERE id=?",
+        (value, ts, announcement_id),
+    )
+    con.commit()
+    con.close()
+    return {"id": announcement_id, "text": value, "updated_at": ts}
+
+
+@app.delete("/api/admin/announcements/{announcement_id}")
+def delete_announcement(
+    announcement_id: str,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    row = con.execute("SELECT id FROM site_announcements WHERE id=?", (announcement_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "ההודעה לא נמצאה")
+    con.execute("DELETE FROM site_announcements WHERE id=?", (announcement_id,))
+    con.commit()
+    con.close()
+    return {"ok": True, "id": announcement_id}
 
 
 @app.get("/api/health")

@@ -734,3 +734,40 @@ def test_messages_and_notifications_do_not_cross_site_boundary():
     assert general_sent.status_code == 200
     general_conversation = client.get(f"/api/messages/{a['identity']['id']}", headers=b_h)
     assert [item["text"] for item in general_conversation.json()] == ["general-side message"]
+
+
+def test_adult_path_is_separate_site_and_scopes_api():
+    app_module.SITE_MODE = "general"
+
+    general_home = client.get("/")
+    assert general_home.status_code == 200
+    assert 'data-site-mode="general"' in general_home.text
+    assert 'data-api-base=""' in general_home.text
+
+    adult_home = client.get("/adult")
+    assert adult_home.status_code == 200
+    assert 'data-site-mode="adult"' in adult_home.text
+    assert 'data-api-base="/adult"' in adult_home.text
+
+    general_config = client.get("/api/site-config")
+    assert general_config.status_code == 200
+    assert general_config.json()["mode"] == "general"
+    assert general_config.json()["api_base"] == ""
+
+    adult_config = client.get("/adult/api/site-config")
+    assert adult_config.status_code == 200
+    assert adult_config.json()["mode"] == "adult"
+    assert adult_config.json()["api_base"] == "/adult"
+
+
+def test_adult_path_cannot_read_general_wish():
+    app_module.SITE_MODE = "general"
+    owner, owner_h = join("adult-path-owner", 37, "female", "center")
+    general = create_fantasy(owner_h, kind="general")
+
+    adult_list = client.get("/adult/api/fantasies", headers=owner_h)
+    assert adult_list.status_code == 200
+    assert all(item["kind"] == "adult" for item in adult_list.json())
+
+    adult_direct = client.get(f"/adult/api/fantasies/{general['id']}", headers=owner_h)
+    assert adult_direct.status_code == 404

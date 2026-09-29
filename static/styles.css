@@ -111,3 +111,23 @@ body:has(.announcement-bar) .topbar{top:38px}
 .success-note{display:inline-flex;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(102,214,154,.12);border:1px solid rgba(102,214,154,.25);font-weight:800}
 .my-wish-card .row-top h3{margin:0}
 button.danger,.danger{border-color:rgba(255,95,95,.35);color:#ffb1b1}
+
+
+.activity-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(102,214,154,.07);font-size:13px}
+.activity-fact{display:inline-flex;margin-top:8px;padding:6px 9px;border-radius:10px;background:rgba(102,214,154,.08);font-size:12px;opacity:.86}
+.admin-ops{margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
+.admin-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 24px}
+.admin-stat-card{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid var(--line);border-radius:15px;background:rgba(255,255,255,.025)}
+.admin-stat-card strong{font-size:24px}
+.admin-stat-card span{font-size:12px;opacity:.7}
+.admin-section{margin-top:24px}
+.admin-table-list{display:flex;flex-direction:column;gap:10px}
+.admin-data-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:13px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.02);direction:rtl}
+.admin-data-copy{flex:1;min-width:0}
+.admin-data-copy p{margin:8px 0 0}
+.admin-data-actions{display:flex;flex-wrap:wrap;gap:8px;flex:0 0 auto}
+.danger-pill{border-color:rgba(255,95,95,.4);color:#ffb1b1}
+@media(max-width:800px){
+  .admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admin-data-row{flex-direction:column}
+}

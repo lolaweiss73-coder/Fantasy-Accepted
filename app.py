@@ -1207,6 +1207,9 @@ def apply_to_fantasy(
     if not fantasy or not role:
         con.close()
         raise HTTPException(404, "הפרסום או התפקיד לא נמצאו")
+    if fantasy["kind"] != SITE_MODE:
+        con.close()
+        raise HTTPException(404, "הפרסום או התפקיד לא נמצאו באתר הזה")
     if fantasy["owner_id"] == applicant["id"]:
         con.close()
         raise HTTPException(400, "אי אפשר להגיש מועמדות לפרסום שלך")
@@ -1256,7 +1259,10 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
     owner = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy or fantasy["owner_id"] != owner["id"]:
+    if not fantasy or fantasy["kind"] != SITE_MODE:
+        con.close()
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
+    if fantasy["owner_id"] != owner["id"]:
         con.close()
         raise HTTPException(403, "רק מפרסם/ת המשאלה או הפנטזיה יכול/ה לראות מועמדויות")
     rows = con.execute(
@@ -1288,12 +1294,12 @@ def decide_application(
     owner = current_identity(authorization)
     con = db()
     row = con.execute(
-        "SELECT a.*, f.owner_id FROM applications a JOIN fantasies f ON f.id=a.fantasy_id WHERE a.id=?",
+        "SELECT a.*, f.owner_id, f.kind AS fantasy_kind FROM applications a JOIN fantasies f ON f.id=a.fantasy_id WHERE a.id=?",
         (application_id,),
     ).fetchone()
-    if not row:
+    if not row or row["fantasy_kind"] != SITE_MODE:
         con.close()
-        raise HTTPException(404, "המועמדות לא נמצאה")
+        raise HTTPException(404, "המועמדות לא נמצאה באתר הזה")
     if row["applicant_id"] == owner["id"] and info.status == "withdrawn":
         pass
     elif row["owner_id"] != owner["id"]:
@@ -1387,7 +1393,10 @@ def update_fantasy_stage(
     owner = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy or fantasy["owner_id"] != owner["id"]:
+    if not fantasy or fantasy["kind"] != SITE_MODE:
+        con.close()
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
+    if fantasy["owner_id"] != owner["id"]:
         con.close()
         raise HTTPException(403, "רק יוזם/ת המשאלה יכול/ה לעדכן את שלב הביצוע")
 
@@ -1435,9 +1444,9 @@ def confirm_fulfilled(fantasy_id: str, authorization: str | None = Header(defaul
     person = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy:
+    if not fantasy or fantasy["kind"] != SITE_MODE:
         con.close()
-        raise HTTPException(404, "המשאלה לא נמצאה")
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     accepted_ids = accepted_participant_ids(con, fantasy_id)
     if person["id"] != fantasy["owner_id"] and person["id"] not in accepted_ids:
         con.close()

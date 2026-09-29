@@ -1,6 +1,8 @@
 function fillProfileForm(){
   if(!state.me)return;
   $('#profileRegion').value=state.me.region||'';
+  $('#profileMaritalStatus').value=state.me.marital_status||'prefer_not_to_say';
+  $('#profileRelationshipStatus').value=state.me.relationship_status||'prefer_not_to_say';
   $('#profileSkills').value=(state.me.skills||[]).join(', ');
   $('#profileAvailability').value=state.me.availability||'';
   $('#profileTravel').value=Number(state.me.travel_radius_km||0);
@@ -12,6 +14,8 @@ async function saveMatchingProfile(){
   const skills=$('#profileSkills').value.split(',').map(x=>x.trim()).filter(Boolean);
   const payload={
     region:$('#profileRegion').value.trim(),
+    marital_status:$('#profileMaritalStatus').value,
+    relationship_status:$('#profileRelationshipStatus').value,
     skills,
     availability:$('#profileAvailability').value.trim(),
     travel_radius_km:Number($('#profileTravel').value||0),

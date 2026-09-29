@@ -299,6 +299,13 @@ def init_db() -> None:
         if not exists:
             con.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
+    con.execute(
+        "UPDATE messages SET site_mode=(SELECT kind FROM fantasies WHERE fantasies.id=messages.fantasy_id) WHERE fantasy_id IS NOT NULL"
+    )
+    con.execute(
+        "UPDATE notifications SET site_mode=(SELECT kind FROM fantasies WHERE fantasies.id=notifications.fantasy_id) WHERE fantasy_id IS NOT NULL"
+    )
+
     # One-time migration from the old single-announcement setting.
     # The marker prevents intentionally deleting every ticker message from
     # causing the legacy announcement to reappear after a restart.

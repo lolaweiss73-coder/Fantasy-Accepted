@@ -5,11 +5,13 @@ const welcomeIntro = [
 const welcomeExplanation = [
   'משאלה התקבלה הוא מקום שבו מתחילים ממשהו שהייתם רוצים שיקרה: עזרה, מחווה, יצירה, חוויה, הפתעה, שותף לרעיון או משהו אחר שאתם רוצים להגשים.',
   'יש באתר שני מסלולים נפרדים: משאלות כלליות, ופנטזיות למבוגרים. לכן מי שבא בשביל רעיון לא מיני לא צריך לעבור דרך תוכן אינטימי בכלל.',
-  'מספרים לי מה רוצים. אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים באמת חשובים להתאמה. רק אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם.'
+  'מספרים לי מה רוצים. אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים באמת חשובים להתאמה. אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם, והאתר ממשיך איתכם דרך ההתאמות ועד לביצוע.'
 ];
 
-let welcomeVoiceMode='female';
+const WELCOME_SEEN_KEY='faWelcomeExplainedV4';
+let welcomeVoiceMode=localStorage.getItem('faPreferredVoice')==='male'?'male':'female';
 let welcomeVoices=[];
+let welcomeAutoReplayArmed=false;
 
 function refreshWelcomeVoices(){
   if(!('speechSynthesis' in window))return;
@@ -50,17 +52,27 @@ function appendWelcomeTranscript(text,speaker='מורין'){
 }
 
 function speakWelcome(text,mode=welcomeVoiceMode){
-  if(!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window))return;
+  if(!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window))return false;
   const utterance=new SpeechSynthesisUtterance(String(text||''));
   utterance.lang='he-IL';
   utterance.rate=0.96;
   utterance.pitch=mode==='male'?0.86:1.06;
   const voice=pickWelcomeVoice(mode);
   if(voice)utterance.voice=voice;
-  window.speechSynthesis.speak(utterance);
+  try{
+    window.speechSynthesis.speak(utterance);
+    return true;
+  }catch{
+    return false;
+  }
 }
 
-function welcomeSay(text,{showBubble=true,voiceMode=welcomeVoiceMode,speaker='מורין'}={}){
+function speakWelcomeSequence(){
+  if('speechSynthesis' in window)window.speechSynthesis.cancel();
+  for(const line of [...welcomeIntro,...welcomeExplanation])speakWelcome(line,welcomeVoiceMode);
+}
+
+function welcomeSay(text,{showBubble=true,voiceMode=welcomeVoiceMode,speaker='מורין',speak=true}={}){
   const clean=String(text||'').trim();
   if(!clean)return;
   if(showBubble){
@@ -69,14 +81,9 @@ function welcomeSay(text,{showBubble=true,voiceMode=welcomeVoiceMode,speaker='מ
     bubble.className='welcome-bubble morin-bubble';
     bubble.textContent=clean;
     root.append(bubble);
-    bubble.scrollIntoView({behavior:'smooth',block:'nearest'});
   }
   appendWelcomeTranscript(clean,speaker);
-  speakWelcome(clean,voiceMode);
-}
-
-function welcomeAppend(text){
-  welcomeSay(text);
+  if(speak)speakWelcome(clean,voiceMode);
 }
 
 function normalizeInitials(value){
@@ -85,12 +92,12 @@ function normalizeInitials(value){
     .replace(/[\s."'״׳’_-]/g,'');
 }
 
-function resetWelcome(){
+function resetWelcome({auto=false}={}){
   if('speechSynthesis' in window)window.speechSynthesis.cancel();
-  welcomeVoiceMode='female';
+  welcomeVoiceMode=localStorage.getItem('faPreferredVoice')==='male'?'male':'female';
   $('#welcomeMorinChat').replaceChildren();
   $('#welcomeTranscript').value='';
-  $('#welcomeVoiceStep').classList.add('hidden');
+  $('#welcomeVoiceStep').classList.remove('hidden');
   $('#welcomeHowStep').classList.add('hidden');
   $('#welcomeAviStep').classList.add('hidden');
   $('#welcomeAnnetteConfirm').classList.add('hidden');
@@ -98,29 +105,38 @@ function resetWelcome(){
   $('#welcomeInitials').value='';
   $('#welcomeHowBtn').disabled=false;
 
-  for(const line of welcomeIntro)welcomeSay(line,{voiceMode:'female'});
-  const voiceQuestion='נוח לך להמשיך איתי בקול נשי, או שעדיף לך קול גברי?';
-  $('#welcomeVoiceStep').classList.remove('hidden');
+  for(const line of welcomeIntro)welcomeSay(line,{voiceMode:welcomeVoiceMode});
+  for(const line of welcomeExplanation)welcomeSay(line,{voiceMode:welcomeVoiceMode});
+
+  const voiceQuestion='אם תרצו, אפשר לבחור כאן קול נשי או גברי להסבר.';
   appendWelcomeTranscript(voiceQuestion);
-  speakWelcome(voiceQuestion,'female');
+  welcomeAutoReplayArmed=auto;
+}
+
+function markWelcomeSeen(){
+  localStorage.setItem(WELCOME_SEEN_KEY,'1');
+  welcomeAutoReplayArmed=false;
 }
 
 function continueWelcomeAfterVoiceChoice(mode){
   welcomeVoiceMode=mode;
   localStorage.setItem('faPreferredVoice',mode);
-  $('#welcomeVoiceStep').classList.add('hidden');
   if('speechSynthesis' in window)window.speechSynthesis.cancel();
-
   const answer=mode==='male'
     ? 'מעולה. ממשיכים בקול גברי.'
     : 'מעולה. ממשיכים איתי, מורין.';
   welcomeSay(answer,{voiceMode:mode});
-  for(const line of welcomeExplanation)welcomeSay(line,{voiceMode:mode});
+  speakWelcomeSequence();
 }
 
 $('#welcomeMorinBtn').onclick=()=>{
-  resetWelcome();
+  resetWelcome({auto:false});
   openModal('welcomeMorinModal');
+};
+
+$('#welcomeReplayBtn').onclick=()=>{
+  welcomeAutoReplayArmed=false;
+  speakWelcomeSequence();
 };
 
 $('#welcomeFemaleVoice').onclick=()=>continueWelcomeAfterVoiceChoice('female');
@@ -143,6 +159,7 @@ $('#welcomeFromAviBtn').onclick=()=>{
 };
 
 $('#welcomeDoneBtn').onclick=()=>{
+  markWelcomeSeen();
   if('speechSynthesis' in window)window.speechSynthesis.cancel();
   closeModal('welcomeMorinModal');
 };
@@ -191,11 +208,30 @@ $('#welcomeAnnetteNo').onclick=()=>{
 const welcomeCloseBtn=$('#welcomeMorinModal [data-close="welcomeMorinModal"]');
 if(welcomeCloseBtn){
   welcomeCloseBtn.addEventListener('click',()=>{
+    markWelcomeSeen();
     if('speechSynthesis' in window)window.speechSynthesis.cancel();
   });
 }
+
 $('#welcomeMorinModal').addEventListener('click',e=>{
-  if(e.target===$('#welcomeMorinModal') && 'speechSynthesis' in window){
-    window.speechSynthesis.cancel();
+  if(e.target===$('#welcomeMorinModal')){
+    markWelcomeSeen();
+    if('speechSynthesis' in window)window.speechSynthesis.cancel();
   }
 });
+
+// Mobile browsers may refuse text-to-speech until the first user gesture.
+// If the automatic attempt was blocked, the first tap inside the explanation
+// replays it without requiring a special "start" flow.
+document.addEventListener('pointerdown',()=>{
+  if(!welcomeAutoReplayArmed || !$('#welcomeMorinModal').classList.contains('open'))return;
+  welcomeAutoReplayArmed=false;
+  speakWelcomeSequence();
+},{capture:true});
+
+setTimeout(()=>{
+  if(!state.token && !localStorage.getItem(WELCOME_SEEN_KEY)){
+    resetWelcome({auto:true});
+    openModal('welcomeMorinModal');
+  }
+},120);

@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 
 os.environ["FANTASY_DATA_DIR"] = tempfile.mkdtemp(prefix="fantasy-accepted-tests-")
 os.environ["ADMIN_PASSWORD"] = "test-admin-secret"
@@ -656,3 +657,15 @@ def test_admin_hidden_wish_is_not_directly_viewable_by_other_users():
 
     owner_view = client.get(f"/api/fantasies/{wish['id']}", headers=owner_h)
     assert owner_view.status_code == 200
+
+
+def test_track_selector_and_first_visit_onboarding_regression():
+    root = Path(__file__).resolve().parents[1]
+    core = (root / "static" / "core.js").read_text(encoding="utf-8")
+    onboarding = (root / "static" / "onboarding.js").read_text(encoding="utf-8")
+
+    assert "$$('.track-tab,.track-choice').forEach" in core
+    assert "$$('[data-track]').forEach" in core
+    assert "WELCOME_SEEN_KEY" in onboarding
+    assert "openModal('welcomeMorinModal')" in onboarding
+    assert "speakWelcomeSequence()" in onboarding

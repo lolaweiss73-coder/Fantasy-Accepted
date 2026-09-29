@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from storage import DATA_DIR, INTEGRITY_ERRORS, backend_name, db
@@ -21,7 +21,11 @@ from storage import DATA_DIR, INTEGRITY_ERRORS, backend_name, db
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Fantasy Accepted", version="0.2.0")
+SITE_MODE = os.environ.get("SITE_MODE", "general").strip().lower()
+if SITE_MODE not in {"general", "adult"}:
+    SITE_MODE = "general"
+
+app = FastAPI(title="Fantasy Accepted", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -63,6 +67,15 @@ def ensure_adult_only_text(*parts: str) -> None:
             422,
             "Fantasy Accepted מיועד לבני 18 ומעלה בלבד, ולכן אי אפשר לפרסם תוכן שמערב קטינים.",
         )
+
+
+def ensure_site_kind(kind: str, *, not_found: bool = False) -> None:
+    if kind == SITE_MODE:
+        return
+    if not_found:
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
+    target = "האתר הכללי" if kind == "general" else "אתר המבוגרים"
+    raise HTTPException(409, f"הפרסום הזה שייך ל{target}")
 
 
 def init_db() -> None:
@@ -722,7 +735,18 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
 
 @app.get("/")
 def home():
-    return FileResponse(STATIC_DIR / "index.html")
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("__SITE_MODE__", SITE_MODE)
+    return HTMLResponse(html)
+
+
+@app.get("/api/site-config")
+def site_config():
+    return {
+        "mode": SITE_MODE,
+        "adult": SITE_MODE == "adult",
+        "service": "Fantasy Accepted Adult" if SITE_MODE == "adult" else "משאלה התקבלה",
+    }
 
 
 def require_admin(x_admin_key: str | None) -> None:
@@ -840,7 +864,8 @@ def health():
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.2.0",
+        "version": "0.3.0",
+        "site_mode": SITE_MODE,
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
         "morin_configured": gateway_ready or direct_ready,
@@ -948,10 +973,11 @@ def my_matches(authorization: str | None = Header(default=None)):
         JOIN identities i ON i.id=f.owner_id
         WHERE ms.identity_id=? AND ms.status='suggested'
           AND f.status IN ('published','matching')
+          AND f.kind=?
         ORDER BY ms.score DESC, ms.created_at DESC
         LIMIT 60
         """,
-        (person["id"],),
+        (person["id"], SITE_MODE),
     ).fetchall()
     out = []
     for row in rows:
@@ -967,8 +993,16 @@ def list_notifications(authorization: str | None = Header(default=None)):
     person = current_identity(authorization)
     con = db()
     rows = con.execute(
-        "SELECT * FROM notifications WHERE recipient_id=? ORDER BY created_at DESC LIMIT 100",
-        (person["id"],),
+        """
+        SELECT n.*
+        FROM notifications n
+        LEFT JOIN fantasies f ON f.id=n.fantasy_id
+        WHERE n.recipient_id=?
+          AND (n.fantasy_id IS NULL OR f.kind=?)
+        ORDER BY n.created_at DESC
+        LIMIT 100
+        """,
+        (person["id"], SITE_MODE),
     ).fetchall()
     con.close()
     return [dict(row) for row in rows]
@@ -1018,17 +1052,17 @@ def list_fantasies(
             (viewer["id"], viewer["id"]),
         ).fetchall()
     }
-    clauses = ["f.status IN ('published','matching')", "f.visibility='public'"]
-    params: list[Any] = []
+    clauses = ["f.status IN ('published','matching')", "f.visibility='public'", "f.kind=?"]
+    params: list[Any] = [SITE_MODE]
     if q:
         clauses.append("(f.title LIKE ? OR f.description LIKE ?)")
         params += [f"%{q}%", f"%{q}%"]
     if region:
         clauses.append("(f.region='' OR f.region=?)")
         params.append(region)
-    if kind:
-        clauses.append("f.kind=?")
-        params.append(kind)
+    if kind and kind != SITE_MODE:
+        con.close()
+        return []
     rows = con.execute(
         f"SELECT f.* FROM fantasies f WHERE {' AND '.join(clauses)} ORDER BY f.created_at DESC LIMIT 100",
         params,
@@ -1053,6 +1087,9 @@ def get_fantasy(fantasy_id: str, authorization: str | None = Header(default=None
     if not row:
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
+    if row["kind"] != SITE_MODE:
+        con.close()
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     if row["status"] == "hidden" and row["owner_id"] != viewer["id"]:
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
@@ -1070,6 +1107,7 @@ def get_fantasy(fantasy_id: str, authorization: str | None = Header(default=None
 @app.post("/api/fantasies")
 def create_fantasy(info: FantasyCreate, authorization: str | None = Header(default=None)):
     owner = current_identity(authorization)
+    ensure_site_kind(info.kind)
     if owner["dnd"]:
         raise HTTPException(409, "החשבון בהפסקה; כבה נא לא להפריע לפני פרסום חדש")
     ensure_adult_only_text(
@@ -1302,11 +1340,12 @@ def my_wishes(authorization: str | None = Header(default=None)):
         SELECT DISTINCT f.*
         FROM fantasies f
         LEFT JOIN applications a ON a.fantasy_id=f.id AND a.status='accepted'
-        WHERE f.owner_id=? OR a.applicant_id=?
+        WHERE (f.owner_id=? OR a.applicant_id=?)
+          AND f.kind=?
         ORDER BY f.updated_at DESC
         LIMIT 100
         """,
-        (person["id"], person["id"]),
+        (person["id"], person["id"], SITE_MODE),
     ).fetchall()
     out = [fantasy_payload(con, row, person) for row in rows]
     con.close()
@@ -1759,7 +1798,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
                     "Authorization": f"Bearer {gateway_token}",
                     "Content-Type": "application/json",
                 },
-                json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": info.track_hint},
+                json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": SITE_MODE},
             )
         if response.status_code >= 400:
             raise HTTPException(502, "מורין לא הצליחה לעבד את הבקשה כרגע")
@@ -1784,7 +1823,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": info.text + (("\nTrack hint: " + info.track_hint) if info.track_hint else "") + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
+                {"role": "user", "content": info.text + "\nTrack hint: " + SITE_MODE + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
             ],
             "temperature": 0.2,
         }
@@ -1823,7 +1862,17 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         questions = []
     result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
     result["owner_participates"] = bool(result.get("owner_participates", True))
-    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else (info.track_hint or "general"))
+    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else SITE_MODE)
+    if result["kind"] != SITE_MODE:
+        return {
+            "blocked_reason": (
+                "הבקשה הזו שייכת לאתר המבוגרים הנפרד." if result["kind"] == "adult"
+                else "הבקשה הזו שייכת לאתר המשאלות הכללי."
+            ),
+            "kind": result["kind"],
+            "clarifying_questions": [],
+            "ready_to_draft": False,
+        }
     result["morin_response"] = str(result.get("morin_response") or "").strip()
     result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
 

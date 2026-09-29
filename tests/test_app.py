@@ -39,6 +39,7 @@ def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99):
             "tags": ["שיחה", "היכרות"],
             "region": "center",
             "visibility": "public",
+            "owner_participates": True,
             "roles": [
                 {
                     "name": "משתתף/ת נוסף/ת",
@@ -204,3 +205,37 @@ def test_manual_publish_rejects_minor_involvement_text():
         },
     )
     assert response.status_code == 422
+
+
+def test_owner_participation_is_stored_separately_from_recruitment_roles():
+    owner, owner_h = join("organizer-owner", 36, "female")
+    response = client.post(
+        "/api/fantasies",
+        headers=owner_h,
+        json={
+            "title": "מחווה למישהי אחרת",
+            "description": "פנטזיה שבה היוזמת מארגנת מחווה עבור אדם אחר ומחפשת מבצע.",
+            "original_text": "טקסט מקורי",
+            "mode": "meeting",
+            "tags": ["מחווה"],
+            "region": "center",
+            "visibility": "public",
+            "owner_participates": False,
+            "roles": [{
+                "name": "מבצע/ת",
+                "description": "מי שיבצע את המחווה",
+                "capacity": 1,
+                "min_age": 18,
+                "max_age": 99,
+                "allowed_genders": [],
+                "region": "",
+                "marital_status": "any",
+                "relationship_status": "any",
+                "required_verification": "none"
+            }]
+        },
+    )
+    assert response.status_code == 200, response.text
+    fantasy = response.json()
+    assert fantasy["owner_participates"] is False
+    assert len(fantasy["roles"]) == 1

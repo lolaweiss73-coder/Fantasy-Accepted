@@ -25,7 +25,7 @@ $('#sendMessageBtn').onclick=async()=>{
 $('#messageText').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#sendMessageBtn').click()}});
 
 $$('.nav-btn').forEach(b=>b.onclick=()=>showView(b.dataset.view));
-$('#heroCreate').onclick=()=>showView('create');
+$('#heroCreate').onclick=()=>{resetFantasyComposer();openModal('morinModal');};
 $('#refreshBtn').onclick=loadFeed;
 $('#searchInput').addEventListener('input',()=>{clearTimeout(loadFeed.timer);loadFeed.timer=setTimeout(loadFeed,300)});
 $('#regionFilter').addEventListener('input',()=>{clearTimeout(loadFeed.timer);loadFeed.timer=setTimeout(loadFeed,300)});

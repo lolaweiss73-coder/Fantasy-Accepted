@@ -36,6 +36,7 @@ $('#fantasyForm').onsubmit=async(e)=>{
   const payload={
     title:$('#fantasyTitle').value.trim(), description:$('#fantasyDescription').value.trim(), original_text:$('#fantasyDescription').dataset.original||'',
     mode:$('#fantasyMode').value, tags:$('#fantasyTags').value.split(',').map(x=>x.trim()).filter(Boolean), region:$('#fantasyRegion').value.trim(), visibility:$('#fantasyVisibility').value,
+    owner_participates:$('#ownerParticipates').value==='yes',
     roles:collectRoles()
   };
   if(payload.roles.some(r=>!r.name)){ $('#createStatus').textContent='צריך שם לכל תפקיד'; return; }
@@ -59,6 +60,7 @@ let morinRestartTimer=null;
 let morinBaseText='';
 let morinSegmentFinals=new Map();
 let morinLastInterim='';
+let morinPendingQuestions=[];
 
 function resetMorinVoiceState({clearText=false}={}){
   morinWantsListening=false;
@@ -73,8 +75,14 @@ function resetMorinVoiceState({clearText=false}={}){
   morinRecognition=null;
   if(clearText){
     morinBaseText='';
+    morinPendingQuestions=[];
     $('#morinText').value='';
     $('#morinStatus').textContent='';
+    $('#morinReply').textContent='';
+    $('#morinReply').classList.add('hidden');
+    $('#morinQuestions').replaceChildren();
+    $('#morinQuestions').classList.add('hidden');
+    $('#morinStructureBtn').textContent='סיימתי — דברי איתי';
   }else{
     morinBaseText=cleanSpeech($('#morinText').value);
   }
@@ -86,6 +94,9 @@ function resetFantasyComposer(){
   $('#fantasyForm').reset();
   $('#fantasyDescription').dataset.original='';
   $('#createStatus').textContent='';
+  $('#ownerParticipates').value='yes';
+  $('#morinReviewNote').textContent='';
+  $('#morinReviewNote').classList.add('hidden');
   $('#rolesEditor').replaceChildren();
   state.roleCount=0;
   addRole();
@@ -101,6 +112,18 @@ function speechKey(text){
     .replace(/[.,!?;:״"'׳()[\]{}\-–—]/g,' ')
     .replace(/\s+/g,' ')
     .trim();
+}
+
+function fuzzyOverlapWords(leftWords,rightWords){
+  const max=Math.min(80,leftWords.length,rightWords.length);
+  for(let n=max;n>=4;n--){
+    const a=leftWords.slice(-n).map(speechKey);
+    const b=rightWords.slice(0,n).map(speechKey);
+    let same=0;
+    for(let i=0;i<n;i++)if(a[i] && a[i]===b[i])same++;
+    if(same/n>=0.74)return n;
+  }
+  return 0;
 }
 
 function appendSpeech(existing,addition){
@@ -127,6 +150,14 @@ function appendSpeech(existing,addition){
     if(a && a===b){
       return [left,rw.slice(n).join(' ')].filter(Boolean).join(' ');
     }
+  }
+
+  // Across recognition restarts Google may resend the last phrase with a few
+  // words transcribed differently. Treat a strong fuzzy suffix/prefix match
+  // as overlap instead of duplicating the whole block.
+  const fuzzy=fuzzyOverlapWords(lw,rw);
+  if(fuzzy){
+    return [left,rw.slice(fuzzy).join(' ')].filter(Boolean).join(' ');
   }
 
   return left+' '+right;
@@ -292,17 +323,70 @@ if(!SpeechRecognitionAPI){
 }
 
 $('#morinStructureBtn').onclick=async()=>{
-  const text=$('#morinText').value.trim(); if(text.length<10){$('#morinStatus').textContent='ספרו לי קצת יותר';return}
-  $('#morinStatus').textContent='מורין מסדרת את הטיוטה…'; $('#morinStructureBtn').disabled=true;
+  const text=$('#morinText').value.trim();
+  if(text.length<10){$('#morinStatus').textContent='ספרו לי קצת יותר';return}
+  $('#morinStatus').textContent='מורין חושבת על מה שסיפרתם…';
+  $('#morinStructureBtn').disabled=true;
   try{
-    const result=await api('/api/morin/structure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+    const result=await api('/api/morin/structure',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text,previous_questions:morinPendingQuestions})
+    });
     if(result.blocked_reason){$('#morinStatus').textContent=result.blocked_reason;return}
-    $('#fantasyTitle').value=result.title||''; $('#fantasyDescription').value=result.description||text; $('#fantasyDescription').dataset.original=text;
+
+    const reply=String(result.morin_response||'').trim();
+    if(reply){
+      $('#morinReply').textContent=reply;
+      $('#morinReply').classList.remove('hidden');
+    }
+
+    const questions=Array.isArray(result.clarifying_questions)?result.clarifying_questions.filter(Boolean):[];
+    const qRoot=$('#morinQuestions');
+    qRoot.replaceChildren();
+    if(questions.length){
+      const intro=document.createElement('div');
+      intro.className='muted';
+      intro.textContent='כדי למצוא התאמה טובה יותר, מורין רוצה לוודא:';
+      qRoot.append(intro);
+      for(const q of questions){
+        const item=document.createElement('div');
+        item.className='morin-question';
+        item.textContent='• '+q;
+        qRoot.append(item);
+      }
+      qRoot.classList.remove('hidden');
+      morinPendingQuestions=questions.slice(0,2);
+      $('#morinStatus').textContent='אפשר לענות בקול או בכתב, ואז לבדוק שוב.';
+      $('#morinStructureBtn').textContent='עניתי — בדקי שוב';
+      return;
+    }
+
+    morinPendingQuestions=[];
+    qRoot.classList.add('hidden');
+    $('#fantasyTitle').value=result.title||'';
+    $('#fantasyDescription').value=result.description||text;
+    $('#fantasyDescription').dataset.original=text;
+    $('#ownerParticipates').value=result.owner_participates===false?'no':'yes';
     if(result.mode && ['online','meeting','either'].includes(result.mode))$('#fantasyMode').value=result.mode;
     $('#fantasyTags').value=(result.tags||[]).join(', ');
-    $('#rolesEditor').replaceChildren();state.roleCount=0; for(const r of (result.roles||[]))addRole(r); if(!result.roles?.length)addRole();
-    closeModal('morinModal');showView('create');toast('הטיוטה מוכנה לבדיקה שלך');
-  }catch(err){$('#morinStatus').textContent=err.message}
-  finally{$('#morinStructureBtn').disabled=false}
+    $('#rolesEditor').replaceChildren();
+    state.roleCount=0;
+    for(const r of (result.roles||[]))addRole(r);
+    if(!result.roles?.length)addRole();
+
+    const review=$('#morinReviewNote');
+    review.textContent=reply||'מורין הבינה את הפנטזיה והכינה טיוטה לבדיקה.';
+    review.classList.remove('hidden');
+
+    closeModal('morinModal');
+    showView('create');
+    $('#morinStructureBtn').textContent='סיימתי — דברי איתי';
+    toast('מורין הבינה את הפנטזיה והכינה טיוטה');
+  }catch(err){
+    $('#morinStatus').textContent=err.message;
+  }finally{
+    $('#morinStructureBtn').disabled=false;
+  }
 };
 

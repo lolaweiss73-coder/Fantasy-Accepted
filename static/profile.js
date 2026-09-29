@@ -45,7 +45,10 @@ function notificationCard(item){
     try{
       if(!item.read_at)await api(`/api/notifications/${item.id}/read`,{method:'POST'});
     }catch{}
-    if(item.fantasy_id){
+    if(item.kind==='message'&&item.actor_id){
+      closeModal('notificationsModal');
+      openConversation(item.actor_id,'שיחה');
+    }else if(item.fantasy_id){
       closeModal('notificationsModal');
       openFantasy(item.fantasy_id);
     }

@@ -165,7 +165,8 @@ async function openApplications(fantasyId){
     for(const a of rows){
       const el=document.createElement('div');
       el.className='application-row';
-      el.innerHTML=`<div class="row-top"><strong>${escapeHtml(a.nickname)} · ${a.age}</strong><span class="status-pill">${escapeHtml(labels.status[a.status]||a.status)}</span></div><div class="muted">${escapeHtml(labels.gender[a.gender]||a.gender)}${a.region?` · ${escapeHtml(a.region)}`:''} · תפקיד: ${escapeHtml(a.role_name)}</div><p>${escapeHtml(a.message||'ללא הודעה')}</p><div class="card-actions"><button class="ghost shortlist">רשימה</button><button class="primary accept">קבלה</button><button class="ghost reject">דחייה</button><button class="ghost chat">שיחה פרטית</button></div>`;
+      const completed=Number(a.completion_stats?.fulfilled_total||0);
+      el.innerHTML=`<div class="row-top"><strong>${escapeHtml(a.nickname)} · ${a.age}</strong><span class="status-pill">${escapeHtml(labels.status[a.status]||a.status)}</span></div><div class="muted">${escapeHtml(labels.gender[a.gender]||a.gender)}${a.region?` · ${escapeHtml(a.region)}`:''} · תפקיד: ${escapeHtml(a.role_name)}</div><div class="activity-fact">${completed} משאלות הוגשמו ואושרו בהשתתפות/יוזמת המשתמש הזה</div><p>${escapeHtml(a.message||'ללא הודעה')}</p><div class="card-actions"><button class="ghost shortlist">רשימה</button><button class="primary accept">קבלה</button><button class="ghost reject">דחייה</button><button class="ghost chat">שיחה פרטית</button></div>`;
       el.querySelector('.shortlist').onclick=()=>setApplicationStatus(a.id,'shortlisted',fantasyId);
       el.querySelector('.accept').onclick=()=>setApplicationStatus(a.id,'accepted',fantasyId);
       el.querySelector('.reject').onclick=()=>setApplicationStatus(a.id,'rejected',fantasyId);

@@ -85,6 +85,7 @@ def init_db() -> None:
             travel_radius_km INTEGER NOT NULL DEFAULT 0,
             bio TEXT NOT NULL DEFAULT '',
             adult_discovery INTEGER NOT NULL DEFAULT 0,
+            suspended INTEGER NOT NULL DEFAULT 0,
             created_at REAL NOT NULL
         );
 
@@ -250,6 +251,7 @@ def init_db() -> None:
         ("travel_radius_km", "INTEGER NOT NULL DEFAULT 0"),
         ("bio", "TEXT NOT NULL DEFAULT ''"),
         ("adult_discovery", "INTEGER NOT NULL DEFAULT 0"),
+        ("suspended", "INTEGER NOT NULL DEFAULT 0"),
     ]
     for column_name, column_sql in identity_columns:
         if getattr(con, "postgres", False):
@@ -351,6 +353,18 @@ class MessageCreate(BaseModel):
     fantasy_id: str | None = None
 
 
+class AdminUserSuspension(BaseModel):
+    suspended: bool
+
+
+class AdminFantasyStatus(BaseModel):
+    status: str = Field(pattern="^(published|matching|connected|in_progress|fulfilled_pending|fulfilled|cancelled|hidden)$")
+
+
+class AdminReportStatus(BaseModel):
+    status: str = Field(pattern="^(pending|reviewed|resolved|dismissed)$")
+
+
 class ReportCreate(BaseModel):
     target_identity_id: str | None = None
     target_fantasy_id: str | None = None
@@ -383,6 +397,9 @@ def current_identity(authorization: str | None) -> sqlite3.Row:
     con.close()
     if not row:
         raise HTTPException(401, "ההתחברות אינה תקפה")
+    keys = set(row.keys())
+    if "suspended" in keys and bool(row["suspended"]):
+        raise HTTPException(403, "החשבון הושהה על ידי מנהל האתר")
     return row
 
 
@@ -402,6 +419,27 @@ def identity_public(row: sqlite3.Row) -> dict[str, Any]:
         "travel_radius_km": row["travel_radius_km"] if "travel_radius_km" in keys else 0,
         "bio": row["bio"] if "bio" in keys else "",
         "adult_discovery": bool(row["adult_discovery"]) if "adult_discovery" in keys else False,
+    }
+
+
+def completion_stats(con: sqlite3.Connection, identity_id: str) -> dict[str, int]:
+    owned = con.execute(
+        "SELECT COUNT(*) AS n FROM fantasies WHERE owner_id=? AND status='fulfilled'",
+        (identity_id,),
+    ).fetchone()["n"]
+    participated = con.execute(
+        """
+        SELECT COUNT(DISTINCT f.id) AS n
+        FROM fantasies f
+        JOIN applications a ON a.fantasy_id=f.id
+        WHERE a.applicant_id=? AND a.status='accepted' AND f.status='fulfilled'
+        """,
+        (identity_id,),
+    ).fetchone()["n"]
+    return {
+        "fulfilled_as_owner": int(owned),
+        "fulfilled_as_participant": int(participated),
+        "fulfilled_total": int(owned) + int(participated),
     }
 
 
@@ -829,6 +867,28 @@ def me(authorization: str | None = Header(default=None)):
     return identity_public(current_identity(authorization))
 
 
+@app.get("/api/me/activity-summary")
+def my_activity_summary(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    stats = completion_stats(con, person["id"])
+    con.close()
+    return stats
+
+
+@app.get("/api/identities/{identity_id}/activity-summary")
+def identity_activity_summary(identity_id: str, authorization: str | None = Header(default=None)):
+    current_identity(authorization)
+    con = db()
+    person = con.execute("SELECT id FROM identities WHERE id=?", (identity_id,)).fetchone()
+    if not person:
+        con.close()
+        raise HTTPException(404, "המשתמש לא נמצא")
+    stats = completion_stats(con, identity_id)
+    con.close()
+    return stats
+
+
 @app.put("/api/me/profile")
 def update_profile(info: ProfileUpdate, authorization: str | None = Header(default=None)):
     person = current_identity(authorization)
@@ -1129,8 +1189,13 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
         """,
         (fantasy_id,),
     ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["completion_stats"] = completion_stats(con, row["applicant_id"])
+        out.append(item)
     con.close()
-    return [dict(r) for r in rows]
+    return out
 
 
 @app.post("/api/applications/{application_id}/status")
@@ -1446,6 +1511,168 @@ def block(identity_id: str, authorization: str | None = Header(default=None)):
     con.commit()
     con.close()
     return {"ok": True}
+
+
+@app.get("/api/admin/overview")
+def admin_overview(x_admin_key: str | None = Header(default=None)):
+    require_admin(x_admin_key)
+    con = db()
+    users = con.execute("SELECT COUNT(*) AS n FROM identities").fetchone()["n"]
+    suspended = con.execute("SELECT COUNT(*) AS n FROM identities WHERE suspended=1").fetchone()["n"]
+    wishes = con.execute("SELECT COUNT(*) AS n FROM fantasies").fetchone()["n"]
+    active = con.execute(
+        "SELECT COUNT(*) AS n FROM fantasies WHERE status IN ('published','matching','connected','in_progress','fulfilled_pending')"
+    ).fetchone()["n"]
+    fulfilled = con.execute("SELECT COUNT(*) AS n FROM fantasies WHERE status='fulfilled'").fetchone()["n"]
+    pending_reports = con.execute("SELECT COUNT(*) AS n FROM reports WHERE status='pending'").fetchone()["n"]
+    applications = con.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
+    con.close()
+    return {
+        "users": int(users),
+        "suspended_users": int(suspended),
+        "wishes": int(wishes),
+        "active_wishes": int(active),
+        "fulfilled_wishes": int(fulfilled),
+        "pending_reports": int(pending_reports),
+        "applications": int(applications),
+    }
+
+
+@app.get("/api/admin/users")
+def admin_users(
+    limit: int = Query(default=100, ge=1, le=300),
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    rows = con.execute(
+        "SELECT * FROM identities ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        item = {
+            "id": row["id"],
+            "nickname": row["nickname"],
+            "age": row["age"],
+            "gender": row["gender"],
+            "region": row["region"],
+            "dnd": bool(row["dnd"]),
+            "suspended": bool(row["suspended"]),
+            "created_at": row["created_at"],
+            "completion_stats": completion_stats(con, row["id"]),
+        }
+        out.append(item)
+    con.close()
+    return out
+
+
+@app.post("/api/admin/users/{identity_id}/suspension")
+def admin_user_suspension(
+    identity_id: str,
+    info: AdminUserSuspension,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    row = con.execute("SELECT id FROM identities WHERE id=?", (identity_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "המשתמש לא נמצא")
+    con.execute("UPDATE identities SET suspended=? WHERE id=?", (1 if info.suspended else 0, identity_id))
+    con.commit()
+    con.close()
+    return {"ok": True, "suspended": info.suspended}
+
+
+@app.get("/api/admin/fantasies")
+def admin_fantasies(
+    limit: int = Query(default=100, ge=1, le=300),
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    rows = con.execute(
+        """
+        SELECT f.id,f.title,f.kind,f.status,f.visibility,f.created_at,f.updated_at,
+               i.id AS owner_id,i.nickname AS owner_nickname,
+               (SELECT COUNT(*) FROM applications a WHERE a.fantasy_id=f.id) AS application_count,
+               (SELECT COUNT(*) FROM reports r WHERE r.target_fantasy_id=f.id AND r.status='pending') AS pending_reports
+        FROM fantasies f
+        JOIN identities i ON i.id=f.owner_id
+        ORDER BY f.updated_at DESC LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    con.close()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/admin/fantasies/{fantasy_id}/status")
+def admin_fantasy_status(
+    fantasy_id: str,
+    info: AdminFantasyStatus,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    row = con.execute("SELECT id FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "המשאלה לא נמצאה")
+    con.execute("UPDATE fantasies SET status=?,updated_at=? WHERE id=?", (info.status, now(), fantasy_id))
+    con.commit()
+    con.close()
+    return {"ok": True, "status": info.status}
+
+
+@app.get("/api/admin/reports")
+def admin_reports(
+    status: str = Query(default="", pattern="^(|pending|reviewed|resolved|dismissed)$"),
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    clauses = []
+    params: list[Any] = []
+    if status:
+        clauses.append("r.status=?")
+        params.append(status)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    rows = con.execute(
+        f"""
+        SELECT r.*, reporter.nickname AS reporter_nickname,
+               target.nickname AS target_nickname,
+               f.title AS fantasy_title
+        FROM reports r
+        JOIN identities reporter ON reporter.id=r.reporter_id
+        LEFT JOIN identities target ON target.id=r.target_identity_id
+        LEFT JOIN fantasies f ON f.id=r.target_fantasy_id
+        {where}
+        ORDER BY r.created_at DESC LIMIT 200
+        """,
+        params,
+    ).fetchall()
+    con.close()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/admin/reports/{report_id}/status")
+def admin_report_status(
+    report_id: str,
+    info: AdminReportStatus,
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    con = db()
+    row = con.execute("SELECT id FROM reports WHERE id=?", (report_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "הדיווח לא נמצא")
+    con.execute("UPDATE reports SET status=? WHERE id=?", (info.status, report_id))
+    con.commit()
+    con.close()
+    return {"ok": True, "status": info.status}
 
 
 @app.post("/api/reports")

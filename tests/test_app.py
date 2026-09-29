@@ -2,13 +2,24 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 os.environ["FANTASY_DATA_DIR"] = tempfile.mkdtemp(prefix="fantasy-accepted-tests-")
 os.environ["ADMIN_PASSWORD"] = "test-admin-secret"
+os.environ["SITE_MODE"] = "adult"
 
 from fastapi.testclient import TestClient
+import app as app_module
 from app import app, init_db
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_site_mode():
+    app_module.SITE_MODE = "adult"
+    yield
+    app_module.SITE_MODE = "adult"
 
 
 def join(nickname, age=30, gender="female", region="center"):
@@ -29,7 +40,7 @@ def join(nickname, age=30, gender="female", region="center"):
     return data, {"Authorization": f"Bearer {data['token']}"}
 
 
-def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99, kind="adult"):
+def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99, kind="adult", expect_status=200):
     response = client.post(
         "/api/fantasies",
         headers=headers,
@@ -59,7 +70,7 @@ def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99, kind="
             ],
         },
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == expect_status, response.text
     return response.json()
 
 
@@ -244,26 +255,30 @@ def test_owner_participation_is_stored_separately_from_recruitment_roles():
     assert len(fantasy["roles"]) == 1
 
 
-def test_general_and_adult_tracks_are_filtered_separately():
+def test_general_and_adult_sites_are_server_side_isolated():
     owner, owner_h = join("track-owner", 41, "female")
     viewer, viewer_h = join("track-viewer", 39, "male")
 
+    app_module.SITE_MODE = "general"
     general = create_fantasy(owner_h, kind="general")
-    adult = create_fantasy(owner_h, kind="adult")
+    create_fantasy(owner_h, kind="adult", expect_status=409)
 
-    general_feed = client.get("/api/fantasies?kind=general", headers=viewer_h)
+    general_feed = client.get("/api/fantasies", headers=viewer_h)
     assert general_feed.status_code == 200
-    general_ids = {item["id"] for item in general_feed.json()}
-    assert general["id"] in general_ids
-    assert adult["id"] not in general_ids
+    assert any(item["id"] == general["id"] for item in general_feed.json())
     assert all(item["kind"] == "general" for item in general_feed.json())
+    assert client.get("/api/fantasies?kind=adult", headers=viewer_h).json() == []
 
-    adult_feed = client.get("/api/fantasies?kind=adult", headers=viewer_h)
+    app_module.SITE_MODE = "adult"
+    adult = create_fantasy(owner_h, kind="adult")
+    adult_feed = client.get("/api/fantasies", headers=viewer_h)
     assert adult_feed.status_code == 200
-    adult_ids = {item["id"] for item in adult_feed.json()}
-    assert adult["id"] in adult_ids
-    assert general["id"] not in adult_ids
+    assert any(item["id"] == adult["id"] for item in adult_feed.json())
     assert all(item["kind"] == "adult" for item in adult_feed.json())
+    assert client.get(f"/api/fantasies/{general['id']}", headers=viewer_h).status_code == 404
+
+    app_module.SITE_MODE = "general"
+    assert client.get(f"/api/fantasies/{adult['id']}", headers=viewer_h).status_code == 404
 
 
 def test_announcement_list_is_public_and_admin_can_add_edit_delete():
@@ -353,6 +368,7 @@ def update_matching_profile(headers, *, skills=None, region="center", availabili
 
 
 def test_general_wish_creates_proactive_match_and_notification():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("wish-owner", 35, "female", "center")
     candidate, candidate_h = join("wish-candidate", 30, "male", "center")
     update_matching_profile(candidate_h, skills=["שיחה", "היכרות"], adult_discovery=False)
@@ -393,6 +409,7 @@ def test_adult_proactive_matches_require_explicit_opt_in():
 
 
 def test_wish_execution_lifecycle_requires_both_sides_to_confirm():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("flow-owner", 38, "female", "center")
     participant, participant_h = join("flow-participant", 32, "male", "center")
     update_matching_profile(participant_h, skills=["שיחה"], adult_discovery=False)
@@ -518,6 +535,7 @@ def test_admin_auth_and_user_suspension():
 
 
 def test_admin_can_hide_and_restore_wish():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("admin-wish-owner", 34, "female", "center")
     viewer, viewer_h = join("admin-wish-viewer", 32, "male", "center")
     wish = create_fantasy(owner_h, kind="general")
@@ -546,6 +564,7 @@ def test_admin_can_hide_and_restore_wish():
 
 
 def test_admin_report_workflow():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("report-owner", 35, "female", "center")
     reporter, reporter_h = join("report-reporter", 31, "male", "center")
     wish = create_fantasy(owner_h, kind="general")
@@ -575,6 +594,7 @@ def test_admin_report_workflow():
 
 
 def test_completion_summary_is_factual_and_counts_fulfilled_wishes():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("record-owner", 39, "female", "center")
     participant, participant_h = join("record-participant", 33, "male", "center")
     wish = create_fantasy(owner_h, allowed_genders=["male"], min_age=25, max_age=45, kind="general")
@@ -641,6 +661,7 @@ def test_profile_can_store_optional_relationship_details_after_signup():
 
 
 def test_admin_hidden_wish_is_not_directly_viewable_by_other_users():
+    app_module.SITE_MODE = "general"
     owner, owner_h = join("hidden-owner", 35, "female", "center")
     viewer, viewer_h = join("hidden-viewer", 33, "male", "center")
     wish = create_fantasy(owner_h, kind="general")
@@ -659,13 +680,57 @@ def test_admin_hidden_wish_is_not_directly_viewable_by_other_users():
     assert owner_view.status_code == 200
 
 
-def test_track_selector_and_first_visit_onboarding_regression():
+def test_split_site_template_and_adult_gate_regression():
     root = Path(__file__).resolve().parents[1]
     core = (root / "static" / "core.js").read_text(encoding="utf-8")
     onboarding = (root / "static" / "onboarding.js").read_text(encoding="utf-8")
+    template = (root / "templates" / "index.html").read_text(encoding="utf-8")
 
-    assert "$$('.track-tab,.track-choice').forEach" in core
-    assert "$$('[data-track]').forEach" in core
-    assert "WELCOME_SEEN_KEY" in onboarding
-    assert "openModal('welcomeMorinModal')" in onboarding
-    assert "speakWelcomeSequence()" in onboarding
+    assert "SITE_MODE" in core
+    assert "ADULT_GATE_KEY" in core
+    assert "fa:adult-gate-accepted" in core
+    assert "adultAgeGate" in template
+    assert 'data-site-mode="__SITE_MODE__"' in template
+    assert "maybeOpenWelcome" in onboarding
+    assert "fa:adult-gate-accepted" in onboarding
+    assert not (root / "static" / "index.html").exists()
+
+    app_module.SITE_MODE = "general"
+    general_home = client.get("/")
+    assert general_home.status_code == 200
+    assert 'data-site-mode="general"' in general_home.text
+
+    app_module.SITE_MODE = "adult"
+    adult_home = client.get("/")
+    assert adult_home.status_code == 200
+    assert 'data-site-mode="adult"' in adult_home.text
+
+    assert client.get("/static/index.html").status_code == 404
+
+
+def test_messages_and_notifications_do_not_cross_site_boundary():
+    a, a_h = join("site-msg-a", 31, "female")
+    b, b_h = join("site-msg-b", 33, "male")
+
+    app_module.SITE_MODE = "adult"
+    sent = client.post(
+        "/api/messages",
+        headers=a_h,
+        json={"recipient_id": b["identity"]["id"], "text": "adult-side message", "fantasy_id": None},
+    )
+    assert sent.status_code == 200
+    assert any(item["kind"] == "message" for item in client.get("/api/notifications", headers=b_h).json())
+
+    app_module.SITE_MODE = "general"
+    assert client.get("/api/inbox", headers=b_h).json() == []
+    assert client.get(f"/api/messages/{a['identity']['id']}", headers=b_h).json() == []
+    assert client.get("/api/notifications", headers=b_h).json() == []
+
+    general_sent = client.post(
+        "/api/messages",
+        headers=a_h,
+        json={"recipient_id": b["identity"]["id"], "text": "general-side message", "fantasy_id": None},
+    )
+    assert general_sent.status_code == 200
+    general_conversation = client.get(f"/api/messages/{a['identity']['id']}", headers=b_h)
+    assert [item["text"] for item in general_conversation.json()] == ["general-side message"]

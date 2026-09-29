@@ -61,35 +61,52 @@ function cleanSpeech(text){
   return String(text||'').replace(/\s+/g,' ').trim();
 }
 
+function speechKey(text){
+  return cleanSpeech(text)
+    .toLowerCase()
+    .replace(/[.,!?;:״"'׳()[\]{}\-–—]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
 function appendSpeech(existing,addition){
   const left=cleanSpeech(existing);
   const right=cleanSpeech(addition);
   if(!right)return left;
   if(!left)return right;
 
-  const nl=left.toLowerCase();
-  const nr=right.toLowerCase();
-  if(nl===nr || nl.endsWith(nr))return left;
+  const nl=speechKey(left);
+  const nr=speechKey(right);
+  if(!nr || nl===nr)return left;
+
+  // Google/Samsung sometimes returns the whole sentence again, only longer.
+  // Keep the longer cumulative hypothesis instead of appending it twice.
+  if(nr.startsWith(nl))return right;
+  if(nl.startsWith(nr) || nl.endsWith(nr))return left;
 
   const lw=left.split(/\s+/);
   const rw=right.split(/\s+/);
-  const max=Math.min(12,lw.length,rw.length);
+  const max=Math.min(40,lw.length,rw.length);
   for(let n=max;n>=1;n--){
-    const a=lw.slice(-n).join(' ').toLowerCase();
-    const b=rw.slice(0,n).join(' ').toLowerCase();
-    if(a===b){
+    const a=speechKey(lw.slice(-n).join(' '));
+    const b=speechKey(rw.slice(0,n).join(' '));
+    if(a && a===b){
       return [left,rw.slice(n).join(' ')].filter(Boolean).join(' ');
     }
   }
+
   return left+' '+right;
 }
 
 function currentSegmentFinal(){
+  // Some Android Chrome builds emit cumulative final hypotheses at
+  // successive result indexes: "היי", "היי מורי", "היי מורי מה שלומך".
+  // Fold them through appendSpeech so they become one growing sentence.
   return [...morinSegmentFinals.keys()]
     .sort((a,b)=>a-b)
     .map(k=>morinSegmentFinals.get(k))
     .filter(Boolean)
-    .join(' ');
+    .reduce((combined,part)=>appendSpeech(combined,part),'');
 }
 
 function renderSpeech(interim=''){

@@ -187,3 +187,15 @@ $('#welcomeAnnetteNo').onclick=()=>{
   $('#welcomeAnnetteConfirm').classList.add('hidden');
   welcomeSay('אז כנראה שההודעה האישית לא נועדה לך. עכשיו לפחות אני יודעת שלא לנחש אנשים לפי שתי אותיות 😄');
 };
+
+const welcomeCloseBtn=$('#welcomeMorinModal [data-close="welcomeMorinModal"]');
+if(welcomeCloseBtn){
+  welcomeCloseBtn.addEventListener('click',()=>{
+    if('speechSynthesis' in window)window.speechSynthesis.cancel();
+  });
+}
+$('#welcomeMorinModal').addEventListener('click',e=>{
+  if(e.target===$('#welcomeMorinModal') && 'speechSynthesis' in window){
+    window.speechSynthesis.cancel();
+  }
+});

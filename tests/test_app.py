@@ -705,6 +705,11 @@ def test_split_site_template_and_adult_gate_regression():
     assert adult_home.status_code == 200
     assert 'data-site-mode="adult"' in adult_home.text
 
+    general_config = client.get("/api/site-config", headers={"X-Site-Mode": "general"})
+    adult_config = client.get("/api/site-config", headers={"X-Site-Mode": "adult"})
+    assert general_config.json()["mode"] == "general"
+    assert adult_config.json()["mode"] == "adult"
+
     assert client.get("/static/index.html").status_code == 404
 
 

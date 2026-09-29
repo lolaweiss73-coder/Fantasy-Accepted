@@ -206,6 +206,13 @@ def init_db() -> None:
             read_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS fulfillment_confirmations (
+            fantasy_id TEXT NOT NULL REFERENCES fantasies(id) ON DELETE CASCADE,
+            identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            confirmed_at REAL NOT NULL,
+            PRIMARY KEY(fantasy_id, identity_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_fantasies_created ON fantasies(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_roles_fantasy ON roles(fantasy_id);
         CREATE INDEX IF NOT EXISTS idx_applications_fantasy ON applications(fantasy_id, created_at DESC);
@@ -213,6 +220,7 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_match_identity ON match_suggestions(identity_id, status, score DESC);
         CREATE INDEX IF NOT EXISTS idx_match_fantasy ON match_suggestions(fantasy_id, score DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, read_at, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_fulfillment_fantasy ON fulfillment_confirmations(fantasy_id, confirmed_at);
         """
     )
 
@@ -331,6 +339,10 @@ class ApplicationCreate(BaseModel):
 
 class ApplicationDecision(BaseModel):
     status: str = Field(pattern="^(pending|shortlisted|accepted|rejected|withdrawn)$")
+
+
+class FantasyStageUpdate(BaseModel):
+    status: str = Field(pattern="^(matching|connected|in_progress|cancelled)$")
 
 
 class MessageCreate(BaseModel):
@@ -580,6 +592,52 @@ def refresh_matches_for_identity(con: sqlite3.Connection, identity_id: str) -> i
     return created
 
 
+def accepted_participant_ids(con: sqlite3.Connection, fantasy_id: str) -> list[str]:
+    rows = con.execute(
+        "SELECT DISTINCT applicant_id FROM applications WHERE fantasy_id=? AND status='accepted'",
+        (fantasy_id,),
+    ).fetchall()
+    return [row["applicant_id"] for row in rows]
+
+
+def fantasy_roles_filled(con: sqlite3.Connection, fantasy_id: str) -> bool:
+    roles = con.execute("SELECT id,capacity FROM roles WHERE fantasy_id=?", (fantasy_id,)).fetchall()
+    if not roles:
+        return False
+    for role in roles:
+        count = con.execute(
+            "SELECT COUNT(*) AS n FROM applications WHERE fantasy_id=? AND role_id=? AND status='accepted'",
+            (fantasy_id, role["id"]),
+        ).fetchone()["n"]
+        if count < role["capacity"]:
+            return False
+    return True
+
+
+def workflow_payload(con: sqlite3.Connection, fantasy: sqlite3.Row, viewer: sqlite3.Row | None) -> dict[str, Any]:
+    accepted_ids = accepted_participant_ids(con, fantasy["id"])
+    confirmations = con.execute(
+        "SELECT identity_id,confirmed_at FROM fulfillment_confirmations WHERE fantasy_id=?",
+        (fantasy["id"],),
+    ).fetchall()
+    confirmed_ids = {row["identity_id"] for row in confirmations}
+    viewer_id = viewer["id"] if viewer else None
+    return {
+        "status": fantasy["status"],
+        "roles_filled": fantasy_roles_filled(con, fantasy["id"]),
+        "accepted_count": len(accepted_ids),
+        "owner_confirmed": fantasy["owner_id"] in confirmed_ids,
+        "participant_confirmed": any(identity_id in confirmed_ids for identity_id in accepted_ids),
+        "viewer_confirmed": bool(viewer_id and viewer_id in confirmed_ids),
+        "viewer_is_accepted": bool(viewer_id and viewer_id in accepted_ids),
+        "can_confirm": bool(
+            viewer_id
+            and fantasy["status"] in ("in_progress", "fulfilled_pending")
+            and (viewer_id == fantasy["owner_id"] or viewer_id in accepted_ids)
+        ),
+    }
+
+
 def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.Row | None = None) -> dict[str, Any]:
     owner = con.execute("SELECT * FROM identities WHERE id=?", (row["owner_id"],)).fetchone()
     roles = con.execute("SELECT * FROM roles WHERE fantasy_id=? ORDER BY id", (row["id"],)).fetchall()
@@ -606,6 +664,7 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
         "owner_participates": bool(row["owner_participates"]),
         "kind": row["kind"],
         "roles": role_items,
+        "workflow": workflow_payload(con, row, viewer),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -885,7 +944,7 @@ def list_fantasies(
             (viewer["id"], viewer["id"]),
         ).fetchall()
     }
-    clauses = ["f.status='published'", "f.visibility='public'"]
+    clauses = ["f.status IN ('published','matching')", "f.visibility='public'"]
     params: list[Any] = []
     if q:
         clauses.append("(f.title LIKE ? OR f.description LIKE ?)")
@@ -1002,7 +1061,7 @@ def apply_to_fantasy(
 ):
     applicant = current_identity(authorization)
     con = db()
-    fantasy = con.execute("SELECT * FROM fantasies WHERE id=? AND status='published'", (fantasy_id,)).fetchone()
+    fantasy = con.execute("SELECT * FROM fantasies WHERE id=? AND status IN ('published','matching')", (fantasy_id,)).fetchone()
     role = con.execute("SELECT * FROM roles WHERE id=? AND fantasy_id=?", (info.role_id, fantasy_id)).fetchone()
     if not fantasy or not role:
         con.close()
@@ -1027,6 +1086,21 @@ def apply_to_fantasy(
         con.execute(
             "INSERT INTO applications (id,fantasy_id,role_id,applicant_id,message,status,created_at,updated_at) VALUES (?,?,?,?,?,'pending',?,?)",
             (app_id, fantasy_id, info.role_id, applicant["id"], info.message.strip(), ts, ts),
+        )
+        if fantasy["status"] == "published":
+            con.execute("UPDATE fantasies SET status='matching',updated_at=? WHERE id=?", (ts, fantasy_id))
+        con.execute(
+            "UPDATE match_suggestions SET status='responded',updated_at=? WHERE fantasy_id=? AND role_id=? AND identity_id=?",
+            (ts, fantasy_id, info.role_id, applicant["id"]),
+        )
+        add_notification(
+            con,
+            fantasy["owner_id"],
+            "application_received",
+            f"מועמדות חדשה למשאלה: {fantasy['title']} · תפקיד: {role['name']}",
+            fantasy_id,
+            role["id"],
+            applicant["id"],
         )
         con.commit()
     except INTEGRITY_ERRORS:
@@ -1079,22 +1153,194 @@ def decide_application(
     elif row["owner_id"] != owner["id"]:
         con.close()
         raise HTTPException(403, "אין הרשאה לעדכן את המועמדות")
+    fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (row["fantasy_id"],)).fetchone()
+    if fantasy["status"] in ("in_progress", "fulfilled_pending", "fulfilled", "cancelled"):
+        con.close()
+        raise HTTPException(409, "אי אפשר לשנות משתתפים אחרי שהביצוע התחיל או הסתיים")
+
+    if info.status == "accepted":
+        role = con.execute("SELECT * FROM roles WHERE id=?", (row["role_id"],)).fetchone()
+        accepted_now = con.execute(
+            "SELECT COUNT(*) AS n FROM applications WHERE role_id=? AND status='accepted' AND id<>?",
+            (row["role_id"], application_id),
+        ).fetchone()["n"]
+        if accepted_now >= role["capacity"]:
+            con.close()
+            raise HTTPException(409, "כל המקומות בתפקיד הזה כבר התמלאו")
+
     con.execute("UPDATE applications SET status=?,updated_at=? WHERE id=?", (info.status, now(), application_id))
     if info.status == "accepted":
-        fantasy = con.execute("SELECT title,kind FROM fantasies WHERE id=?", (row["fantasy_id"],)).fetchone()
-        label = "המשאלה" if fantasy and fantasy["kind"] == "general" else "הפנטזיה"
+        label = "המשאלה" if fantasy["kind"] == "general" else "הפנטזיה"
         add_notification(
             con,
             row["applicant_id"],
             "application_accepted",
-            f"המועמדות שלך התקבלה עבור {label}: {fantasy['title'] if fantasy else ''}",
+            f"המועמדות שלך התקבלה עבור {label}: {fantasy['title']}",
             row["fantasy_id"],
             row["role_id"],
             row["owner_id"],
         )
+        if fantasy_roles_filled(con, row["fantasy_id"]):
+            con.execute(
+                "UPDATE fantasies SET status='connected',updated_at=? WHERE id=?",
+                (now(), row["fantasy_id"]),
+            )
+            for participant_id in accepted_participant_ids(con, row["fantasy_id"]):
+                add_notification(
+                    con,
+                    participant_id,
+                    "team_ready",
+                    f"הצוות הושלם עבור: {fantasy['title']}. אפשר לעבור לביצוע.",
+                    row["fantasy_id"],
+                    actor_id=row["owner_id"],
+                )
+        else:
+            con.execute(
+                "UPDATE fantasies SET status='matching',updated_at=? WHERE id=?",
+                (now(), row["fantasy_id"]),
+            )
+    elif info.status in ("rejected", "withdrawn") and fantasy["status"] == "connected":
+        if not fantasy_roles_filled(con, row["fantasy_id"]):
+            con.execute(
+                "UPDATE fantasies SET status='matching',updated_at=? WHERE id=?",
+                (now(), row["fantasy_id"]),
+            )
     con.commit()
+    updated_fantasy = con.execute("SELECT status FROM fantasies WHERE id=?", (row["fantasy_id"],)).fetchone()
     con.close()
-    return {"ok": True, "status": info.status}
+    return {"ok": True, "status": info.status, "fantasy_status": updated_fantasy["status"]}
+
+
+@app.get("/api/me/wishes")
+def my_wishes(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    rows = con.execute(
+        """
+        SELECT DISTINCT f.*
+        FROM fantasies f
+        LEFT JOIN applications a ON a.fantasy_id=f.id AND a.status='accepted'
+        WHERE f.owner_id=? OR a.applicant_id=?
+        ORDER BY f.updated_at DESC
+        LIMIT 100
+        """,
+        (person["id"], person["id"]),
+    ).fetchall()
+    out = [fantasy_payload(con, row, person) for row in rows]
+    con.close()
+    return out
+
+
+@app.post("/api/fantasies/{fantasy_id}/stage")
+def update_fantasy_stage(
+    fantasy_id: str,
+    info: FantasyStageUpdate,
+    authorization: str | None = Header(default=None),
+):
+    owner = current_identity(authorization)
+    con = db()
+    fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    if not fantasy or fantasy["owner_id"] != owner["id"]:
+        con.close()
+        raise HTTPException(403, "רק יוזם/ת המשאלה יכול/ה לעדכן את שלב הביצוע")
+
+    current = fantasy["status"]
+    transitions = {
+        "published": {"matching", "cancelled"},
+        "matching": {"connected", "cancelled"},
+        "connected": {"in_progress", "cancelled"},
+        "in_progress": {"cancelled"},
+        "fulfilled_pending": {"in_progress", "cancelled"},
+    }
+    if info.status not in transitions.get(current, set()):
+        con.close()
+        raise HTTPException(409, f"אי אפשר לעבור מ-{current} ל-{info.status}")
+    if info.status in ("connected", "in_progress", "fulfilled_pending") and not fantasy_roles_filled(con, fantasy_id):
+        con.close()
+        raise HTTPException(409, "עדיין חסרים משתתפים כדי לעבור לשלב הזה")
+
+    con.execute("UPDATE fantasies SET status=?,updated_at=? WHERE id=?", (info.status, now(), fantasy_id))
+    accepted_ids = accepted_participant_ids(con, fantasy_id)
+    status_text = {
+        "matching": "המשאלה מחפשת התאמות",
+        "connected": "כל המשתתפים נמצאו",
+        "in_progress": "המשאלה עברה לביצוע",
+        "cancelled": "המשאלה בוטלה",
+    }[info.status]
+    for participant_id in accepted_ids:
+        add_notification(
+            con,
+            participant_id,
+            "workflow",
+            f"{status_text}: {fantasy['title']}",
+            fantasy_id,
+            actor_id=owner["id"],
+        )
+    con.commit()
+    row = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    payload = fantasy_payload(con, row, owner)
+    con.close()
+    return payload
+
+
+@app.post("/api/fantasies/{fantasy_id}/confirm-fulfilled")
+def confirm_fulfilled(fantasy_id: str, authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    if not fantasy:
+        con.close()
+        raise HTTPException(404, "המשאלה לא נמצאה")
+    accepted_ids = accepted_participant_ids(con, fantasy_id)
+    if person["id"] != fantasy["owner_id"] and person["id"] not in accepted_ids:
+        con.close()
+        raise HTTPException(403, "רק משתתפים במשאלה יכולים לאשר הגשמה")
+    if fantasy["status"] not in ("in_progress", "fulfilled_pending"):
+        con.close()
+        raise HTTPException(409, "אפשר לאשר הגשמה רק כשהמשאלה בביצוע או ממתינה לאישור")
+
+    con.execute(
+        "INSERT INTO fulfillment_confirmations (fantasy_id,identity_id,confirmed_at) VALUES (?,?,?) ON CONFLICT(fantasy_id,identity_id) DO NOTHING",
+        (fantasy_id, person["id"], now()),
+    )
+    confirmed_rows = con.execute(
+        "SELECT identity_id FROM fulfillment_confirmations WHERE fantasy_id=?",
+        (fantasy_id,),
+    ).fetchall()
+    confirmed_ids = {row["identity_id"] for row in confirmed_rows}
+    owner_confirmed = fantasy["owner_id"] in confirmed_ids
+    participant_confirmed = any(identity_id in confirmed_ids for identity_id in accepted_ids)
+
+    new_status = fantasy["status"]
+    if owner_confirmed and participant_confirmed:
+        new_status = "fulfilled"
+    elif owner_confirmed:
+        new_status = "fulfilled_pending"
+
+    if new_status != fantasy["status"]:
+        con.execute("UPDATE fantasies SET status=?,updated_at=? WHERE id=?", (new_status, now(), fantasy_id))
+
+    recipients = set(accepted_ids + [fantasy["owner_id"]])
+    recipients.discard(person["id"])
+    if new_status == "fulfilled":
+        notice = f"המשאלה הוגשמה ואושרה משני הצדדים: {fantasy['title']}"
+    else:
+        notice = f"התקבל אישור הגשמה עבור: {fantasy['title']}. ממתינים לאישור מהצד השני."
+    for recipient_id in recipients:
+        add_notification(
+            con,
+            recipient_id,
+            "fulfillment",
+            notice,
+            fantasy_id,
+            actor_id=person["id"],
+        )
+
+    con.commit()
+    row = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+    payload = fantasy_payload(con, row, person)
+    con.close()
+    return payload
 
 
 @app.get("/api/inbox")
@@ -1173,6 +1419,14 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
     con.execute(
         "INSERT INTO messages (id,sender_id,recipient_id,text,fantasy_id,created_at) VALUES (?,?,?,?,?,?)",
         (message_id, sender["id"], recipient["id"], info.text.strip(), info.fantasy_id, now()),
+    )
+    add_notification(
+        con,
+        recipient["id"],
+        "message",
+        f"הודעה חדשה מאת {sender['nickname']}",
+        info.fantasy_id,
+        actor_id=sender["id"],
     )
     con.commit()
     con.close()

@@ -526,16 +526,47 @@ def refresh_matches_for_fantasy(con: sqlite3.Connection, fantasy_id: str) -> int
 
 
 def refresh_matches_for_identity(con: sqlite3.Connection, identity_id: str) -> int:
+    person = con.execute("SELECT * FROM identities WHERE id=?", (identity_id,)).fetchone()
+    if not person or person["dnd"]:
+        return 0
     con.execute(
         "UPDATE match_suggestions SET status='stale',updated_at=? WHERE identity_id=? AND status='suggested'",
         (now(), identity_id),
     )
-    fantasies = con.execute(
-        "SELECT id FROM fantasies WHERE status IN ('published','matching') ORDER BY created_at DESC LIMIT 150"
+    rows = con.execute(
+        """
+        SELECT f.id AS fantasy_id, r.id AS role_id
+        FROM fantasies f
+        JOIN roles r ON r.fantasy_id=f.id
+        WHERE f.status IN ('published','matching') AND f.owner_id<>?
+        ORDER BY f.created_at DESC LIMIT 300
+        """,
+        (identity_id,),
     ).fetchall()
     created = 0
-    for fantasy in fantasies:
-        created += refresh_matches_for_fantasy(con, fantasy["id"])
+    for link in rows:
+        fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (link["fantasy_id"],)).fetchone()
+        role = con.execute("SELECT * FROM roles WHERE id=?", (link["role_id"],)).fetchone()
+        if not fantasy or not role or blocked_between(con, fantasy["owner_id"], identity_id):
+            continue
+        score, reasons = match_score(fantasy, role, person)
+        if not score:
+            continue
+        suggestion_id = uid()
+        ts = now()
+        try:
+            con.execute(
+                "INSERT INTO match_suggestions (id,fantasy_id,role_id,identity_id,score,reasons,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'suggested',?,?)",
+                (suggestion_id, fantasy["id"], role["id"], identity_id, score, json_dump(reasons), ts, ts),
+            )
+        except INTEGRITY_ERRORS:
+            # An old suggestion can be reactivated after profile changes without re-notifying.
+            con.execute(
+                "UPDATE match_suggestions SET score=?,reasons=?,status='suggested',updated_at=? WHERE fantasy_id=? AND role_id=? AND identity_id=?",
+                (score, json_dump(reasons), ts, fantasy["id"], role["id"], identity_id),
+            )
+            continue
+        created += 1
     return created
 
 

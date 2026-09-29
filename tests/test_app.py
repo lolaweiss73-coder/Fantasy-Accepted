@@ -27,7 +27,7 @@ def join(nickname, age=30, gender="female", region="center"):
     return data, {"Authorization": f"Bearer {data['token']}"}
 
 
-def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99):
+def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99, kind="adult"):
     response = client.post(
         "/api/fantasies",
         headers=headers,
@@ -40,6 +40,7 @@ def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99):
             "region": "center",
             "visibility": "public",
             "owner_participates": True,
+            "kind": kind,
             "roles": [
                 {
                     "name": "משתתף/ת נוסף/ת",
@@ -239,3 +240,25 @@ def test_owner_participation_is_stored_separately_from_recruitment_roles():
     fantasy = response.json()
     assert fantasy["owner_participates"] is False
     assert len(fantasy["roles"]) == 1
+
+
+def test_general_and_adult_tracks_are_filtered_separately():
+    owner, owner_h = join("track-owner", 41, "female")
+    viewer, viewer_h = join("track-viewer", 39, "male")
+
+    general = create_fantasy(owner_h, kind="general")
+    adult = create_fantasy(owner_h, kind="adult")
+
+    general_feed = client.get("/api/fantasies?kind=general", headers=viewer_h)
+    assert general_feed.status_code == 200
+    general_ids = {item["id"] for item in general_feed.json()}
+    assert general["id"] in general_ids
+    assert adult["id"] not in general_ids
+    assert all(item["kind"] == "general" for item in general_feed.json())
+
+    adult_feed = client.get("/api/fantasies?kind=adult", headers=viewer_h)
+    assert adult_feed.status_code == 200
+    adult_ids = {item["id"] for item in adult_feed.json()}
+    assert adult["id"] in adult_ids
+    assert general["id"] not in adult_ids
+    assert all(item["kind"] == "adult" for item in adult_feed.json())

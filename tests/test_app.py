@@ -462,3 +462,135 @@ def test_private_message_creates_notification():
         n["kind"] == "message" and n["actor_id"] == sender["identity"]["id"]
         for n in notifications.json()
     )
+
+
+def test_admin_auth_and_user_suspension():
+    user, user_h = join("admin-suspend-user", 30, "female", "center")
+    identity_id = user["identity"]["id"]
+
+    denied = client.get("/api/admin/overview", headers={"X-Admin-Key": "wrong"})
+    assert denied.status_code == 401
+
+    overview = client.get("/api/admin/overview", headers={"X-Admin-Key": "test-admin-secret"})
+    assert overview.status_code == 200
+    assert overview.json()["users"] >= 1
+
+    suspended = client.post(
+        f"/api/admin/users/{identity_id}/suspension",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"suspended": True},
+    )
+    assert suspended.status_code == 200
+    assert suspended.json()["suspended"] is True
+
+    blocked = client.get("/api/me", headers=user_h)
+    assert blocked.status_code == 403
+
+    restored = client.post(
+        f"/api/admin/users/{identity_id}/suspension",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"suspended": False},
+    )
+    assert restored.status_code == 200
+
+    active_again = client.get("/api/me", headers=user_h)
+    assert active_again.status_code == 200
+
+
+def test_admin_can_hide_and_restore_wish():
+    owner, owner_h = join("admin-wish-owner", 34, "female", "center")
+    viewer, viewer_h = join("admin-wish-viewer", 32, "male", "center")
+    wish = create_fantasy(owner_h, kind="general")
+
+    before = client.get("/api/fantasies?kind=general", headers=viewer_h)
+    assert before.status_code == 200
+    assert any(item["id"] == wish["id"] for item in before.json())
+
+    hidden = client.post(
+        f"/api/admin/fantasies/{wish['id']}/status",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"status": "hidden"},
+    )
+    assert hidden.status_code == 200
+
+    after = client.get("/api/fantasies?kind=general", headers=viewer_h)
+    assert after.status_code == 200
+    assert all(item["id"] != wish["id"] for item in after.json())
+
+    restored = client.post(
+        f"/api/admin/fantasies/{wish['id']}/status",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"status": "published"},
+    )
+    assert restored.status_code == 200
+
+
+def test_admin_report_workflow():
+    owner, owner_h = join("report-owner", 35, "female", "center")
+    reporter, reporter_h = join("report-reporter", 31, "male", "center")
+    wish = create_fantasy(owner_h, kind="general")
+
+    report = client.post(
+        "/api/reports",
+        headers=reporter_h,
+        json={"target_fantasy_id": wish["id"], "reason": "בדיקת דיווח", "details": "פרטים לבדיקה"},
+    )
+    assert report.status_code == 200
+    report_id = report.json()["id"]
+
+    rows = client.get(
+        "/api/admin/reports?status=pending",
+        headers={"X-Admin-Key": "test-admin-secret"},
+    )
+    assert rows.status_code == 200
+    assert any(row["id"] == report_id for row in rows.json())
+
+    resolved = client.post(
+        f"/api/admin/reports/{report_id}/status",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "resolved"
+
+
+def test_completion_summary_is_factual_and_counts_fulfilled_wishes():
+    owner, owner_h = join("record-owner", 39, "female", "center")
+    participant, participant_h = join("record-participant", 33, "male", "center")
+    wish = create_fantasy(owner_h, allowed_genders=["male"], min_age=25, max_age=45, kind="general")
+    role_id = wish["roles"][0]["id"]
+
+    applied = client.post(
+        f"/api/fantasies/{wish['id']}/apply",
+        headers=participant_h,
+        json={"role_id": role_id, "message": ""},
+    )
+    assert applied.status_code == 200
+
+    apps = client.get(f"/api/fantasies/{wish['id']}/applications", headers=owner_h)
+    application_id = apps.json()[0]["id"]
+    accepted = client.post(
+        f"/api/applications/{application_id}/status",
+        headers=owner_h,
+        json={"status": "accepted"},
+    )
+    assert accepted.status_code == 200
+
+    started = client.post(
+        f"/api/fantasies/{wish['id']}/stage",
+        headers=owner_h,
+        json={"status": "in_progress"},
+    )
+    assert started.status_code == 200
+
+    assert client.post(f"/api/fantasies/{wish['id']}/confirm-fulfilled", headers=participant_h).status_code == 200
+    finished = client.post(f"/api/fantasies/{wish['id']}/confirm-fulfilled", headers=owner_h)
+    assert finished.status_code == 200
+    assert finished.json()["workflow"]["status"] == "fulfilled"
+
+    owner_stats = client.get("/api/me/activity-summary", headers=owner_h)
+    participant_stats = client.get("/api/me/activity-summary", headers=participant_h)
+    assert owner_stats.status_code == 200
+    assert participant_stats.status_code == 200
+    assert owner_stats.json()["fulfilled_as_owner"] >= 1
+    assert participant_stats.json()["fulfilled_as_participant"] >= 1

@@ -830,6 +830,14 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         role["max_age"] = 99 if max_age is None else max(role["min_age"], int(max_age))
         role["capacity"] = min(20, max(1, int(role.get("capacity") or 1)))
 
+    questions = result.get("clarifying_questions") or []
+    if not isinstance(questions, list):
+        questions = []
+    result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
+    result["owner_participates"] = bool(result.get("owner_participates", True))
+    result["morin_response"] = str(result.get("morin_response") or "").strip()
+    result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
+
     con = db()
     con.execute(
         "INSERT INTO morin_messages (id,identity_id,role,text,created_at) VALUES (?,?,?,?,?)",

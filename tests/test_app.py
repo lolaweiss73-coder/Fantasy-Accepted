@@ -265,26 +265,51 @@ def test_general_and_adult_tracks_are_filtered_separately():
     assert all(item["kind"] == "adult" for item in adult_feed.json())
 
 
-def test_announcement_is_public_and_admin_controlled():
-    initial = client.get("/api/announcement")
+def test_announcement_list_is_public_and_admin_can_add_edit_delete():
+    initial = client.get("/api/announcements")
     assert initial.status_code == 200
-    assert initial.json()["text"] == "מזל טוב על הגרושים שלך מיסיס ר.ל."
+    initial_items = initial.json()
+    assert any(item["text"] == "מזל טוב על הגרושים שלך מיסיס ר.ל." for item in initial_items)
 
     denied = client.post(
-        "/api/admin/announcement",
+        "/api/admin/announcements",
         headers={"X-Admin-Key": "wrong"},
-        json={"text": "הודעה חדשה"},
+        json={"text": "חג סוכות שמח לכל בית ישראל"},
     )
     assert denied.status_code == 401
 
-    updated = client.post(
-        "/api/admin/announcement",
+    added = client.post(
+        "/api/admin/announcements",
         headers={"X-Admin-Key": "test-admin-secret"},
-        json={"text": "הודעה חדשה"},
+        json={"text": "חג סוכות שמח לכל בית ישראל"},
     )
-    assert updated.status_code == 200
-    assert updated.json()["text"] == "הודעה חדשה"
+    assert added.status_code == 200
+    added_id = added.json()["id"]
 
-    public = client.get("/api/announcement")
+    public = client.get("/api/announcements")
     assert public.status_code == 200
-    assert public.json()["text"] == "הודעה חדשה"
+    texts = [item["text"] for item in public.json()]
+    assert "מזל טוב על הגרושים שלך מיסיס ר.ל." in texts
+    assert "חג סוכות שמח לכל בית ישראל" in texts
+
+    aggregate = client.get("/api/announcement")
+    assert aggregate.status_code == 200
+    assert " ✦ " in aggregate.json()["text"]
+
+    edited = client.put(
+        f"/api/admin/announcements/{added_id}",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"text": "חג שמח לכל בית ישראל"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["text"] == "חג שמח לכל בית ישראל"
+
+    deleted = client.delete(
+        f"/api/admin/announcements/{added_id}",
+        headers={"X-Admin-Key": "test-admin-secret"},
+    )
+    assert deleted.status_code == 200
+
+    after_delete = client.get("/api/announcements")
+    assert after_delete.status_code == 200
+    assert all(item["id"] != added_id for item in after_delete.json())

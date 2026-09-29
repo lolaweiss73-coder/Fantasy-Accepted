@@ -8,11 +8,12 @@ import secrets
 import sqlite3
 import time
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,12 +23,27 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "templates"
 
-SITE_MODE = os.environ.get("SITE_MODE", "general").strip().lower()
-if SITE_MODE not in {"general", "adult"}:
-    SITE_MODE = "general"
+SITE_MODE_CONTEXT: ContextVar[str] = ContextVar("site_mode", default="general")
 
 app = FastAPI(title="Fantasy Accepted", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def current_site_mode() -> str:
+    mode = current_site_mode()_CONTEXT.get()
+    return "adult" if mode == "adult" else "general"
+
+
+@app.middleware("http")
+async def bind_site_mode(request: Request, call_next):
+    header_mode = (request.headers.get("x-site-mode") or "").strip().lower()
+    path_mode = "adult" if request.url.path == "/adult" or request.url.path.startswith("/adult/") else "general"
+    mode = "adult" if header_mode == "adult" or path_mode == "adult" else "general"
+    token = current_site_mode()_CONTEXT.set(mode)
+    try:
+        return await call_next(request)
+    finally:
+        SITE_MODE_CONTEXT.reset(token)
 
 
 def now() -> float:
@@ -71,7 +87,7 @@ def ensure_adult_only_text(*parts: str) -> None:
 
 
 def ensure_site_kind(kind: str, *, not_found: bool = False) -> None:
-    if kind == SITE_MODE:
+    if kind == current_site_mode():
         return
     if not_found:
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
@@ -586,9 +602,9 @@ def add_notification(
     resolved_mode = site_mode
     if resolved_mode is None and fantasy_id:
         fantasy = con.execute("SELECT kind FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-        resolved_mode = fantasy["kind"] if fantasy else SITE_MODE
+        resolved_mode = fantasy["kind"] if fantasy else current_site_mode()
     if resolved_mode not in ("general", "adult"):
-        resolved_mode = SITE_MODE
+        resolved_mode = current_site_mode()
     con.execute(
         "INSERT INTO notifications (id,recipient_id,kind,text,fantasy_id,role_id,actor_id,site_mode,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (notification_id, recipient_id, kind, text, fantasy_id, role_id, actor_id, resolved_mode, now()),
@@ -772,18 +788,23 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
 @app.get("/")
 def home():
     html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("__SITE_MODE__", SITE_MODE)
-    return HTMLResponse(html)
+    return HTMLResponse(html.replace("__SITE_MODE__", "general"))
+
+
+@app.get("/adult")
+def adult_home():
+    html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__SITE_MODE__", "adult"))
 
 
 @app.get("/api/site-config")
 def site_config():
+    mode = current_site_mode()
     return {
-        "mode": SITE_MODE,
-        "adult": SITE_MODE == "adult",
-        "service": "Fantasy Accepted Adult" if SITE_MODE == "adult" else "משאלה התקבלה",
+        "mode": mode,
+        "adult": mode == "adult",
+        "service": "Fantasy Accepted Adult" if mode == "adult" else "משאלה התקבלה",
     }
-
 
 def require_admin(x_admin_key: str | None) -> None:
     configured_password = os.environ.get("ADMIN_PASSWORD", "")
@@ -901,7 +922,7 @@ def health():
         "ok": True,
         "service": "Fantasy Accepted",
         "version": "0.3.0",
-        "site_mode": SITE_MODE,
+        "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
         "morin_configured": gateway_ready or direct_ready,
@@ -1013,7 +1034,7 @@ def my_matches(authorization: str | None = Header(default=None)):
         ORDER BY ms.score DESC, ms.created_at DESC
         LIMIT 60
         """,
-        (person["id"], SITE_MODE),
+        (person["id"], current_site_mode()),
     ).fetchall()
     out = []
     for row in rows:
@@ -1036,7 +1057,7 @@ def list_notifications(authorization: str | None = Header(default=None)):
         ORDER BY n.created_at DESC
         LIMIT 100
         """,
-        (person["id"], SITE_MODE),
+        (person["id"], current_site_mode()),
     ).fetchall()
     con.close()
     return [dict(row) for row in rows]
@@ -1048,7 +1069,7 @@ def read_notification(notification_id: str, authorization: str | None = Header(d
     con = db()
     row = con.execute(
         "SELECT id FROM notifications WHERE id=? AND recipient_id=? AND site_mode=?",
-        (notification_id, person["id"], SITE_MODE),
+        (notification_id, person["id"], current_site_mode()),
     ).fetchone()
     if not row:
         con.close()
@@ -1087,14 +1108,14 @@ def list_fantasies(
         ).fetchall()
     }
     clauses = ["f.status IN ('published','matching')", "f.visibility='public'", "f.kind=?"]
-    params: list[Any] = [SITE_MODE]
+    params: list[Any] = [current_site_mode()]
     if q:
         clauses.append("(f.title LIKE ? OR f.description LIKE ?)")
         params += [f"%{q}%", f"%{q}%"]
     if region:
         clauses.append("(f.region='' OR f.region=?)")
         params.append(region)
-    if kind and kind != SITE_MODE:
+    if kind and kind != current_site_mode():
         con.close()
         return []
     rows = con.execute(
@@ -1121,7 +1142,7 @@ def get_fantasy(fantasy_id: str, authorization: str | None = Header(default=None
     if not row:
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
-    if row["kind"] != SITE_MODE:
+    if row["kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     if row["status"] == "hidden" and row["owner_id"] != viewer["id"]:
@@ -1215,7 +1236,7 @@ def apply_to_fantasy(
     if not fantasy or not role:
         con.close()
         raise HTTPException(404, "הפרסום או התפקיד לא נמצאו")
-    if fantasy["kind"] != SITE_MODE:
+    if fantasy["kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "הפרסום או התפקיד לא נמצאו באתר הזה")
     if fantasy["owner_id"] == applicant["id"]:
@@ -1267,7 +1288,7 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
     owner = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy or fantasy["kind"] != SITE_MODE:
+    if not fantasy or fantasy["kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     if fantasy["owner_id"] != owner["id"]:
@@ -1305,7 +1326,7 @@ def decide_application(
         "SELECT a.*, f.owner_id, f.kind AS fantasy_kind FROM applications a JOIN fantasies f ON f.id=a.fantasy_id WHERE a.id=?",
         (application_id,),
     ).fetchone()
-    if not row or row["fantasy_kind"] != SITE_MODE:
+    if not row or row["fantasy_kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "המועמדות לא נמצאה באתר הזה")
     if row["applicant_id"] == owner["id"] and info.status == "withdrawn":
@@ -1385,7 +1406,7 @@ def my_wishes(authorization: str | None = Header(default=None)):
         ORDER BY f.updated_at DESC
         LIMIT 100
         """,
-        (person["id"], person["id"], SITE_MODE),
+        (person["id"], person["id"], current_site_mode()),
     ).fetchall()
     out = [fantasy_payload(con, row, person) for row in rows]
     con.close()
@@ -1401,7 +1422,7 @@ def update_fantasy_stage(
     owner = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy or fantasy["kind"] != SITE_MODE:
+    if not fantasy or fantasy["kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     if fantasy["owner_id"] != owner["id"]:
@@ -1452,7 +1473,7 @@ def confirm_fulfilled(fantasy_id: str, authorization: str | None = Header(defaul
     person = current_identity(authorization)
     con = db()
     fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
-    if not fantasy or fantasy["kind"] != SITE_MODE:
+    if not fantasy or fantasy["kind"] != current_site_mode():
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     accepted_ids = accepted_participant_ids(con, fantasy_id)
@@ -1520,7 +1541,7 @@ def inbox(authorization: str | None = Header(default=None)):
         WHERE (sender_id=? OR recipient_id=?) AND site_mode=?
         GROUP BY other_id ORDER BY last_ts DESC
         """,
-        (person["id"], person["id"], person["id"], person["id"], SITE_MODE),
+        (person["id"], person["id"], person["id"], person["id"], current_site_mode()),
     ).fetchall()
     out = []
     for row in rows:
@@ -1540,7 +1561,7 @@ def conversation(other_id: str, authorization: str | None = Header(default=None)
         raise HTTPException(403, "אין גישה בין המשתמשים")
     con.execute(
         "UPDATE messages SET read_at=? WHERE recipient_id=? AND sender_id=? AND site_mode=? AND read_at IS NULL",
-        (now(), person["id"], other_id, SITE_MODE),
+        (now(), person["id"], other_id, current_site_mode()),
     )
     rows = con.execute(
         """
@@ -1549,7 +1570,7 @@ def conversation(other_id: str, authorization: str | None = Header(default=None)
           AND site_mode=?
         ORDER BY created_at ASC LIMIT 200
         """,
-        (person["id"], other_id, other_id, person["id"], SITE_MODE),
+        (person["id"], other_id, other_id, person["id"], current_site_mode()),
     ).fetchall()
     con.commit()
     con.close()
@@ -1570,20 +1591,20 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
     if recipient["dnd"]:
         established = con.execute(
             "SELECT 1 FROM messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)) AND site_mode=? LIMIT 1",
-            (sender["id"], recipient["id"], recipient["id"], sender["id"], SITE_MODE),
+            (sender["id"], recipient["id"], recipient["id"], sender["id"], current_site_mode()),
         ).fetchone()
         if not established:
             con.close()
             raise HTTPException(409, "המשתמש/ת כרגע בהפסקה ולא מקבל/ת פניות חדשות")
     if info.fantasy_id:
         fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (info.fantasy_id,)).fetchone()
-        if not fantasy or fantasy["kind"] != SITE_MODE:
+        if not fantasy or fantasy["kind"] != current_site_mode():
             con.close()
             raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     message_id = uid()
     con.execute(
         "INSERT INTO messages (id,sender_id,recipient_id,text,fantasy_id,site_mode,created_at) VALUES (?,?,?,?,?,?,?)",
-        (message_id, sender["id"], recipient["id"], info.text.strip(), info.fantasy_id, SITE_MODE, now()),
+        (message_id, sender["id"], recipient["id"], info.text.strip(), info.fantasy_id, current_site_mode(), now()),
     )
     add_notification(
         con,
@@ -1592,7 +1613,7 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
         f"הודעה חדשה מאת {sender['nickname']}",
         info.fantasy_id,
         actor_id=sender["id"],
-        site_mode=SITE_MODE,
+        site_mode=current_site_mode(),
     )
     con.commit()
     con.close()
@@ -1868,7 +1889,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": info.text + "\nTrack hint: " + SITE_MODE + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
+                {"role": "user", "content": info.text + "\nTrack hint: " + current_site_mode() + (("\nPrevious clarifying questions: " + json_dump(info.previous_questions)) if info.previous_questions else "")},
             ],
             "temperature": 0.2,
         }
@@ -1907,8 +1928,8 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         questions = []
     result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
     result["owner_participates"] = bool(result.get("owner_participates", True))
-    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else SITE_MODE)
-    if result["kind"] != SITE_MODE:
+    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else current_site_mode())
+    if result["kind"] != current_site_mode():
         return {
             "blocked_reason": (
                 "הבקשה הזו שייכת לאתר המבוגרים הנפרד." if result["kind"] == "adult"

@@ -385,10 +385,17 @@ def update_announcement(
     info: AnnouncementUpdate,
     x_admin_key: str | None = Header(default=None),
 ):
-    expected = os.environ.get("ADMIN_PASSWORD", "")
-    if not expected:
-        raise HTTPException(503, "ניהול האתר עדיין לא הוגדר")
-    if not x_admin_key or not secrets.compare_digest(x_admin_key, expected):
+    configured_password = os.environ.get("ADMIN_PASSWORD", "")
+    configured_hash = os.environ.get(
+        "ADMIN_PASSWORD_HASH",
+        "bc3f409d5818ce56cb8d749d65dc67fb14991e1f8b9503ca34ee5ae9ceb3ab93",
+    )
+    if configured_password:
+        valid = bool(x_admin_key) and secrets.compare_digest(x_admin_key, configured_password)
+    else:
+        supplied_hash = hashlib.sha256((x_admin_key or "").encode("utf-8")).hexdigest()
+        valid = secrets.compare_digest(supplied_hash, configured_hash)
+    if not valid:
         raise HTTPException(401, "סיסמת מנהל שגויה")
 
     value = info.text.strip()

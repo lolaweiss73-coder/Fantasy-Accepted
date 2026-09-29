@@ -264,23 +264,33 @@ def init_db() -> None:
         if not exists:
             con.execute(f"ALTER TABLE identities ADD COLUMN {column_name} {column_sql}")
 
-    existing_announcement = con.execute("SELECT value FROM site_settings WHERE key='announcement'").fetchone()
-    if not existing_announcement:
+    # One-time migration from the old single-announcement setting.
+    # The marker prevents intentionally deleting every ticker message from
+    # causing the legacy announcement to reappear after a restart.
+    migration_marker = con.execute(
+        "SELECT value FROM site_settings WHERE key='announcement_list_migrated_v2'"
+    ).fetchone()
+    if not migration_marker:
+        existing_announcement = con.execute(
+            "SELECT value FROM site_settings WHERE key='announcement'"
+        ).fetchone()
+        announcement_count = con.execute(
+            "SELECT COUNT(*) AS n FROM site_announcements"
+        ).fetchone()["n"]
+        if announcement_count == 0:
+            legacy_text = (existing_announcement["value"] if existing_announcement else "").strip()
+            if legacy_text:
+                ts = now()
+                con.execute(
+                    "INSERT INTO site_announcements (id,text,created_at,updated_at) VALUES (?,?,?,?)",
+                    (uid(), legacy_text, ts, ts),
+                )
+        marker_ts = now()
         con.execute(
-            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?)",
-            ("announcement", "מזל טוב על הגרושים שלך מיסיס ר.ל.", now()),
+            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            ("announcement_list_migrated_v2", "1", marker_ts),
         )
-        existing_announcement = {"value": "מזל טוב על הגרושים שלך מיסיס ר.ל."}
-
-    announcement_count = con.execute("SELECT COUNT(*) AS n FROM site_announcements").fetchone()["n"]
-    if announcement_count == 0:
-        legacy_text = (existing_announcement["value"] if existing_announcement else "").strip()
-        if legacy_text:
-            ts = now()
-            con.execute(
-                "INSERT INTO site_announcements (id,text,created_at,updated_at) VALUES (?,?,?,?)",
-                (uid(), legacy_text, ts, ts),
-            )
 
     con.commit()
     con.close()

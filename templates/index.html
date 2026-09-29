@@ -14,7 +14,7 @@
       <div class="eyebrow">FANTASY ACCEPTED · ADULT</div>
       <h1 id="adultAgeTitle">הכניסה למבוגרים בלבד</h1>
       <p>האתר הזה כולל פנטזיות ותוכן אינטימי המיועדים למבוגרים.</p>
-      <p class="adult-age-declaration">בלחיצה על הכפתור אני מצהיר/ה שמלאו לי 18 שנים, שאני רשאי/ת לצפות בתוכן למבוגרים במקום שבו אני נמצא/ת, ושאני בוחר/ת להיכנס מרצוני.</p>
+      <p class="adult-age-declaration">בלחיצה על הכפתור מאשרים שמלאו 18 שנים, שהצפייה בתוכן למבוגרים מותרת במקום הגישה, ושהכניסה נעשית מרצון.</p>
       <button id="adultAgeAccept" class="primary large" type="button">אני בן/בת 18 ומעלה — כניסה</button>
       <p class="fineprint">אם טרם מלאו לך 18, אין להיכנס לאתר זה.</p>
     </div>
@@ -56,10 +56,6 @@
 
     <section class="content">
       <div id="feedView" class="view active-view">
-        <div class="track-tabs" role="group" aria-label="בחירת מסלול">
-          <button class="track-tab active" data-track="general" type="button">🌟 משאלות כלליות</button>
-          <button class="track-tab" data-track="adult" type="button">🔞 פנטזיות למבוגרים</button>
-        </div>
         <div class="hero-card">
           <div>
             <div id="feedEyebrow" class="eyebrow">WISHES · IDEAS · EXPERIENCES</div>
@@ -115,12 +111,7 @@
               </select>
             </label>
           </div>
-          <label id="fantasyKindLabel">מסלול
-            <select id="fantasyKind">
-              <option value="general">משאלה כללית</option>
-              <option value="adult">פנטזיה למבוגרים</option>
-            </select>
-          </label>
+          <input id="fantasyKind" type="hidden" value="general">
           <label>תגיות
             <input id="fantasyTags" placeholder="מופרדות בפסיקים">
           </label>
@@ -189,17 +180,6 @@
       <div class="eyebrow">משאלה התקבלה · FANTASY ACCEPTED</div>
       <h1>יש משהו שהיית רוצה שיקרה?</h1>
       <p class="lead">ספרו למורין משהו שהייתם רוצים שיקרה. היא תעזור להבין מי או מה חסר, למצוא התאמות, וללוות את המשאלה עד לביצוע.</p>
-
-      <div class="gate-track-grid" aria-label="בחירת מסלול">
-        <button class="track-choice active" data-track="general" type="button">
-          <strong>🌟 משאלות כלליות</strong>
-          <span>דברים שרוצים לעשות, לקבל, ליצור או להגשים — בלי תוכן מיני.</span>
-        </button>
-        <button class="track-choice" data-track="adult" type="button">
-          <strong>🔞 פנטזיות למבוגרים</strong>
-          <span>מסלול נפרד לפנטזיות אינטימיות ותוכן למבוגרים.</span>
-        </button>
-      </div>
 
       <div class="gate-steps" aria-label="איך זה עובד">
         <div class="gate-step"><strong>1</strong><span>מספרים למורין מה רוצים</span></div>

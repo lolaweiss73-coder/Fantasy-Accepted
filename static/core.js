@@ -1,5 +1,13 @@
 const $ = (q) => document.querySelector(q);
-const $$ = (q) => [...document.querySelectorAll(q)];
+const $ = (q) => [...document.querySelectorAll(q)];
+
+const SITE_MODE = document.body.dataset.siteMode === 'adult' ? 'adult' : 'general';
+window.FA_SITE_MODE = SITE_MODE;
+const ADULT_GATE_KEY = 'faAdultAgeGateAccepted';
+
+if(SITE_MODE === 'adult' && localStorage.getItem(ADULT_GATE_KEY) === '1'){
+  document.body.classList.add('adult-age-confirmed');
+}
 
 const state = {
   token: localStorage.getItem('faToken') || '',
@@ -8,7 +16,7 @@ const state = {
   activeConversation: null,
   inbox: [],
   roleCount: 0,
-  track: localStorage.getItem('faTrack') === 'adult' ? 'adult' : 'general',
+  track: SITE_MODE,
 };
 
 const labels = {
@@ -51,8 +59,9 @@ function showView(name){
   if(name === 'wishes' && typeof loadMyWishes==='function') loadMyWishes();
 }
 function applyTrackUI(){
-  const adult=state.track==='adult';
-  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===state.track));
+  state.track=SITE_MODE;
+  const adult=SITE_MODE==='adult';
+  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
   if($('#feedTitle'))$('#feedTitle').textContent=adult?'מה הפנטזיה שלך?':'מה היית רוצה שיקרה?';
   if($('#feedLead'))$('#feedLead').textContent=adult
@@ -69,16 +78,48 @@ function applyTrackUI(){
   if($('#ownerParticipatesNo'))$('#ownerParticipatesNo').textContent=adult?'מארגן/ת בלבד — הפנטזיה מיועדת לאחרים':'מארגן/ת בלבד — המשאלה מיועדת לאחרים';
 }
 
-function setTrack(track,{reload=true}={}){
-  state.track=track==='adult'?'adult':'general';
-  localStorage.setItem('faTrack',state.track);
+function setTrack(_track,{reload=true}={}){
+  state.track=SITE_MODE;
   applyTrackUI();
   if(reload && state.me)loadFeed();
 }
 
-$$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
-  setTrack(btn.dataset.track);
+$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
+  setTrack(SITE_MODE);
 }));
+
+function applySiteModeUI(){
+  const adult=SITE_MODE==='adult';
+  const brand=$('.brand');
+  const tagline=$('.tagline');
+  const gateEyebrow=$('#gate .eyebrow');
+  const gateTitle=$('#gate h1');
+  const gateLead=$('#gate .lead');
+  if(brand)brand.textContent=adult?'Fantasy Accepted 18+':'משאלה התקבלה';
+  if(tagline)tagline.textContent=adult?'ADULT · לבקש. להתחבר. להגשים.':'FANTASY ACCEPTED · לבקש. להתחבר. להגשים.';
+  if(gateEyebrow)gateEyebrow.textContent=adult?'FANTASY ACCEPTED · 18+':'משאלה התקבלה · FANTASY ACCEPTED';
+  if(gateTitle)gateTitle.textContent=adult?'מה הפנטזיה שלך?':'יש משהו שהיית רוצה שיקרה?';
+  if(gateLead)gateLead.textContent=adult
+    ?'ספרו למורין על פנטזיה למבוגרים. היא תעזור להבין מי חסר, למצוא התאמות וללוות את התהליך עד לביצוע.'
+    :'ספרו למורין משהו שהייתם רוצים שיקרה. היא תעזור להבין מי או מה חסר, למצוא התאמות, וללוות את המשאלה עד לביצוע.';
+  if($('#enterBtn'))$('#enterBtn').textContent=adult?'כניסה ל־Fantasy Accepted':'כניסה ל־משאלה התקבלה';
+  if($('#gateFineprint'))$('#gateFineprint').textContent=adult
+    ?'הכניסה לאתר זה מיועדת לבני 18 ומעלה בלבד.'
+    :'בשלב ההשקה השירות הכללי מיועד לבני 18 ומעלה.';
+  if(adult && $('#adultConfirm'))$('#adultConfirm').checked=true;
+  applyTrackUI();
+}
+
+if($('#adultAgeAccept')){
+  $('#adultAgeAccept').addEventListener('click',()=>{
+    localStorage.setItem(ADULT_GATE_KEY,'1');
+    document.body.classList.add('adult-age-confirmed');
+    if($('#adultConfirm'))$('#adultConfirm').checked=true;
+    document.dispatchEvent(new CustomEvent('fa:adult-gate-accepted'));
+  });
+}
+
+applySiteModeUI();
 
 function formatDate(ts){ return new Date(ts*1000).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
@@ -108,7 +149,8 @@ $('#enterBtn').onclick = async () => {
   const payload = {
     nickname: $('#nickname').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
     region:$('#region').value.trim(), marital_status:$('#maritalStatus')?.value||'prefer_not_to_say',
-    relationship_status:$('#relationshipStatus')?.value||'prefer_not_to_say', adult_confirm:$('#adultConfirm').checked
+    relationship_status:$('#relationshipStatus')?.value||'prefer_not_to_say',
+    adult_confirm:SITE_MODE==='adult' ? localStorage.getItem(ADULT_GATE_KEY)==='1' : $('#adultConfirm').checked
   };
   if(!payload.nickname || payload.age < 18 || !payload.gender || !payload.adult_confirm){
     $('#gateError').textContent='צריך כינוי, גיל 18+, מגדר ואישור גיל.'; return;

@@ -36,6 +36,7 @@
       <button class="nav-btn active" data-view="feed">✨ משאלות</button>
       <button class="nav-btn" data-view="create">＋ יצירת משאלה</button>
       <button class="nav-btn" data-view="inbox">✉️ הודעות</button>
+      <button class="nav-btn" data-view="wishes">🪄 המשאלות שלי</button>
       <div class="sidebar-spacer"></div>
       <button id="morinOpen" class="morin-nav">◉ מורין</button>
       <div class="ecosystem-note">חלק מאקוסיסטם No Limit</div>
@@ -135,6 +136,18 @@
             <span id="createStatus" class="status-text"></span>
           </div>
         </form>
+      </div>
+
+      <div id="wishesView" class="view">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">MY WISHES</div>
+            <h1>המשאלות שלי</h1>
+            <p class="muted">משאלות שיצרת או שאת/ה משתתף/ת בהן, כולל מצב הביצוע שלהן.</p>
+          </div>
+        </div>
+        <div id="myWishesList" class="fantasy-grid"></div>
+        <div id="myWishesEmpty" class="empty hidden">עדיין אין כאן משאלות פעילות או קודמות.</div>
       </div>
 
       <div id="inboxView" class="view">
@@ -406,7 +419,8 @@
   <script src="/static/admin.js?v=20260929-admin3" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
   <script src="/static/profile.js?v=20260929-matching1" defer></script>
-  <script src="/static/feed.js?v=20260929-matching1" defer></script>
+  <script src="/static/feed.js?v=20260929-workflow1" defer></script>
+  <script src="/static/workflow.js?v=20260929-workflow1" defer></script>
   <script src="/static/create.js?v=20260929-tracks1" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>

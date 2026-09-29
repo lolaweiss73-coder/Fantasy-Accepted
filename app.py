@@ -342,7 +342,7 @@ class ApplicationDecision(BaseModel):
 
 
 class FantasyStageUpdate(BaseModel):
-    status: str = Field(pattern="^(matching|connected|in_progress|fulfilled_pending|cancelled)$")
+    status: str = Field(pattern="^(matching|connected|in_progress|cancelled)$")
 
 
 class MessageCreate(BaseModel):
@@ -1249,7 +1249,7 @@ def update_fantasy_stage(
         "published": {"matching", "cancelled"},
         "matching": {"connected", "cancelled"},
         "connected": {"in_progress", "cancelled"},
-        "in_progress": {"fulfilled_pending", "cancelled"},
+        "in_progress": {"cancelled"},
         "fulfilled_pending": {"in_progress", "cancelled"},
     }
     if info.status not in transitions.get(current, set()):
@@ -1265,7 +1265,6 @@ def update_fantasy_stage(
         "matching": "המשאלה מחפשת התאמות",
         "connected": "כל המשתתפים נמצאו",
         "in_progress": "המשאלה עברה לביצוע",
-        "fulfilled_pending": "היוזם/ת סימן/ה שהמשאלה הוגשמה וממתין/ה לאישור",
         "cancelled": "המשאלה בוטלה",
     }[info.status]
     for participant_id in accepted_ids:

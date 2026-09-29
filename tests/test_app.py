@@ -38,7 +38,7 @@ def site_headers(headers, mode):
 def create_fantasy(headers, allowed_genders=None, min_age=18, max_age=99, kind="adult", expect_status=200):
     response = client.post(
         "/api/fantasies",
-        headers=site_headers(headers, kind),
+        headers=headers,
         json={
             "title": "טיול לילי בעיר",
             "description": "פנטזיה חברתית שמתחילה בשיחה והיכרות ומחפשת משתתף נוסף.",

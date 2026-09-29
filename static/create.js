@@ -43,7 +43,8 @@ $('#fantasyForm').onsubmit=async(e)=>{
   if(payload.roles.some(r=>!r.name)){ $('#createStatus').textContent='צריך שם לכל תפקיד'; return; }
   try{
     await api('/api/fantasies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    $('#createStatus').textContent='פורסם'; toast('הפנטזיה פורסמה'); e.target.reset(); $('#rolesEditor').replaceChildren();state.roleCount=0;addRole();resetMorinVoiceState({clearText:true});showView('feed');
+    const noun=payload.kind==='general'?'המשאלה':'הפנטזיה';
+    $('#createStatus').textContent='פורסם'; toast(noun+' פורסמה'); e.target.reset(); $('#rolesEditor').replaceChildren();state.roleCount=0;addRole();resetMorinVoiceState({clearText:true});showView('feed');
   }catch(err){$('#createStatus').textContent=err.message}
 };
 
@@ -382,13 +383,14 @@ $('#morinStructureBtn').onclick=async()=>{
     if(!result.roles?.length)addRole();
 
     const review=$('#morinReviewNote');
-    review.textContent=reply||'מורין הבינה את הפנטזיה והכינה טיוטה לבדיקה.';
+    const structuredNoun=(result.kind||state.track)==='general'?'המשאלה':'הפנטזיה';
+    review.textContent=reply||`מורין הבינה את ${structuredNoun} והכינה טיוטה לבדיקה.`;
     review.classList.remove('hidden');
 
     closeModal('morinModal');
     showView('create');
     $('#morinStructureBtn').textContent='סיימתי — דברי איתי';
-    toast('מורין הבינה את הפנטזיה והכינה טיוטה');
+    toast(`מורין הבינה את ${structuredNoun} והכינה טיוטה`);
   }catch(err){
     $('#morinStatus').textContent=err.message;
   }finally{

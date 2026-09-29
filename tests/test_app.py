@@ -313,3 +313,60 @@ def test_announcement_list_is_public_and_admin_can_add_edit_delete():
     after_delete = client.get("/api/announcements")
     assert after_delete.status_code == 200
     assert all(item["id"] != added_id for item in after_delete.json())
+
+
+def update_matching_profile(headers, *, skills=None, region="center", availability="evenings", adult_discovery=False):
+    response = client.put(
+        "/api/me/profile",
+        headers=headers,
+        json={
+            "region": region,
+            "skills": skills or [],
+            "availability": availability,
+            "travel_radius_km": 25,
+            "bio": "פרופיל בדיקה",
+            "adult_discovery": adult_discovery,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_general_wish_creates_proactive_match_and_notification():
+    owner, owner_h = join("wish-owner", 35, "female", "center")
+    candidate, candidate_h = join("wish-candidate", 30, "male", "center")
+    update_matching_profile(candidate_h, skills=["שיחה", "היכרות"], adult_discovery=False)
+
+    wish = create_fantasy(owner_h, allowed_genders=["male"], min_age=25, max_age=40, kind="general")
+
+    matches = client.get("/api/me/matches", headers=candidate_h)
+    assert matches.status_code == 200
+    found = [m for m in matches.json() if m["fantasy_id"] == wish["id"]]
+    assert found
+    assert found[0]["score"] >= 60
+
+    notifications = client.get("/api/notifications", headers=candidate_h)
+    assert notifications.status_code == 200
+    matching = [n for n in notifications.json() if n["fantasy_id"] == wish["id"] and n["kind"] == "match"]
+    assert matching
+
+
+def test_adult_proactive_matches_require_explicit_opt_in():
+    owner, owner_h = join("adult-owner", 36, "female", "center")
+    candidate, candidate_h = join("adult-candidate", 31, "male", "center")
+    update_matching_profile(candidate_h, skills=["שיחה"], adult_discovery=False)
+
+    fantasy = create_fantasy(owner_h, allowed_genders=["male"], min_age=25, max_age=40, kind="adult")
+
+    before = client.get("/api/me/matches", headers=candidate_h)
+    assert before.status_code == 200
+    assert all(m["fantasy_id"] != fantasy["id"] for m in before.json())
+
+    update_matching_profile(candidate_h, skills=["שיחה"], adult_discovery=True)
+    after = client.get("/api/me/matches", headers=candidate_h)
+    assert after.status_code == 200
+    assert any(m["fantasy_id"] == fantasy["id"] for m in after.json())
+
+    notifications = client.get("/api/notifications", headers=candidate_h)
+    assert notifications.status_code == 200
+    assert any(n["fantasy_id"] == fantasy["id"] and n["kind"] == "match" for n in notifications.json())

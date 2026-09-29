@@ -785,16 +785,24 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
     }
 
 
+def render_site_home(mode: str) -> HTMLResponse:
+    safe_mode = "adult" if mode == "adult" else "general"
+    html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
+    audio_name = f"welcome-{safe_mode}.mp3"
+    audio_path = STATIC_DIR / "audio" / audio_name
+    audio_url = f"/static/audio/{audio_name}" if audio_path.exists() else ""
+    html = html.replace("__SITE_MODE__", safe_mode).replace("__WELCOME_AUDIO__", audio_url)
+    return HTMLResponse(html)
+
+
 @app.get("/")
 def home():
-    html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(html.replace("__SITE_MODE__", "general"))
+    return render_site_home("general")
 
 
 @app.get("/adult")
 def adult_home():
-    html = (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(html.replace("__SITE_MODE__", "adult"))
+    return render_site_home("adult")
 
 
 @app.get("/api/site-config")

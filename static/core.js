@@ -36,7 +36,10 @@ function toast(message) {
   const el = $('#toast'); el.textContent = message; el.classList.add('show');
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 2600);
 }
-function authHeaders(extra={}) { return state.token ? {Authorization:`Bearer ${state.token}`,...extra} : extra; }
+function authHeaders(extra={}) {
+  const scoped={'X-Site-Mode':SITE_MODE,...extra};
+  return state.token ? {Authorization:`Bearer ${state.token}`,...scoped} : scoped;
+}
 async function api(path, options={}) {
   const response = await fetch(path, {...options, headers: authHeaders(options.headers || {})});
   if (!response.ok) {

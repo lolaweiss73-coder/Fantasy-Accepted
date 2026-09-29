@@ -2,6 +2,7 @@ const $ = (q) => document.querySelector(q);
 const $$ = (q) => [...document.querySelectorAll(q)];
 
 const SITE_MODE = document.body.dataset.siteMode === 'adult' ? 'adult' : 'general';
+const API_BASE = document.body.dataset.apiBase || '';
 window.FA_SITE_MODE = SITE_MODE;
 const ADULT_GATE_KEY = 'faAdultAgeGateAccepted';
 
@@ -38,7 +39,8 @@ function toast(message) {
 }
 function authHeaders(extra={}) { return state.token ? {Authorization:`Bearer ${state.token}`,...extra} : extra; }
 async function api(path, options={}) {
-  const response = await fetch(path, {...options, headers: authHeaders(options.headers || {})});
+  const requestPath = path.startsWith('/api/') ? `${API_BASE}${path}` : path;
+  const response = await fetch(requestPath, {...options, headers: authHeaders(options.headers || {})});
   if (!response.ok) {
     let body = null; try { body = await response.json(); } catch {}
     const detail = body?.detail;

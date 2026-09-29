@@ -18,3 +18,4 @@ jobs:
       - run: node --check static/create.js
       - run: node --check static/inbox.js
       - run: node --check static/onboarding.js
+      - run: node --check static/admin.js

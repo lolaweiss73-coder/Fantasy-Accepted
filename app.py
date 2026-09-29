@@ -163,6 +163,12 @@ def init_db() -> None:
             created_at REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS site_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_fantasies_created ON fantasies(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_roles_fantasy ON roles(fantasy_id);
         CREATE INDEX IF NOT EXISTS idx_applications_fantasy ON applications(fantasy_id, created_at DESC);
@@ -188,6 +194,13 @@ def init_db() -> None:
         kind_exists = any(row["name"] == "kind" for row in con.execute("PRAGMA table_info(fantasies)").fetchall())
     if not kind_exists:
         con.execute("ALTER TABLE fantasies ADD COLUMN kind TEXT NOT NULL DEFAULT 'adult'")
+
+    existing_announcement = con.execute("SELECT value FROM site_settings WHERE key='announcement'").fetchone()
+    if not existing_announcement:
+        con.execute(
+            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?)",
+            ("announcement", "מזל טוב על הגרושים שלך מיסיס ר.ל.", now()),
+        )
 
     con.commit()
     con.close()
@@ -252,6 +265,10 @@ class ReportCreate(BaseModel):
     target_fantasy_id: str | None = None
     reason: str = Field(min_length=2, max_length=120)
     details: str = Field(default="", max_length=2000)
+
+
+class AnnouncementUpdate(BaseModel):
+    text: str = Field(min_length=1, max_length=220)
 
 
 class MorinStructureRequest(BaseModel):
@@ -350,6 +367,46 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
 @app.get("/")
 def home():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/announcement")
+def get_announcement():
+    con = db()
+    row = con.execute("SELECT value,updated_at FROM site_settings WHERE key='announcement'").fetchone()
+    con.close()
+    return {
+        "text": row["value"] if row else "",
+        "updated_at": row["updated_at"] if row else None,
+    }
+
+
+@app.post("/api/admin/announcement")
+def update_announcement(
+    info: AnnouncementUpdate,
+    x_admin_key: str | None = Header(default=None),
+):
+    expected = os.environ.get("ADMIN_PASSWORD", "")
+    if not expected:
+        raise HTTPException(503, "ניהול האתר עדיין לא הוגדר")
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, expected):
+        raise HTTPException(401, "סיסמת מנהל שגויה")
+
+    value = info.text.strip()
+    con = db()
+    row = con.execute("SELECT key FROM site_settings WHERE key='announcement'").fetchone()
+    if row:
+        con.execute(
+            "UPDATE site_settings SET value=?, updated_at=? WHERE key='announcement'",
+            (value, now()),
+        )
+    else:
+        con.execute(
+            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?)",
+            ("announcement", value, now()),
+        )
+    con.commit()
+    con.close()
+    return {"ok": True, "text": value}
 
 
 @app.get("/api/health")

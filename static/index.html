@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
+    <span id="announcementText"></span>
+  </div>
   <header class="topbar">
     <div class="brand-wrap">
       <button id="menuBtn" class="icon-btn mobile-only" aria-label="תפריט">☰</button>
@@ -17,6 +20,7 @@
       </div>
     </div>
     <div class="top-actions">
+      <button id="adminBtn" class="ghost admin-btn" type="button" aria-label="ניהול האתר">⚙️ ניהול</button>
       <span id="meBadge" class="user-badge hidden"></span>
       <button id="dndBtn" class="ghost hidden">בהפסקה: כבוי</button>
       <button id="logoutBtn" class="ghost hidden">יציאה</button>
@@ -277,6 +281,26 @@
     </div>
   </div>
 
+
+  <div id="adminModal" class="overlay">
+    <div class="modal-card admin-card">
+      <button class="close-btn" data-close="adminModal">×</button>
+      <div class="eyebrow">ADMIN</div>
+      <h2>ניהול הודעת האתר</h2>
+      <p class="muted">הטקסט נשמר במסד הנתונים ומופיע בראש האתר לכל המשתמשים.</p>
+      <label>סיסמת מנהל
+        <input id="adminPassword" type="password" autocomplete="current-password" placeholder="סיסמת מנהל">
+      </label>
+      <label>הודעה
+        <textarea id="adminAnnouncement" rows="4" maxlength="220"></textarea>
+      </label>
+      <div class="form-actions">
+        <button id="adminSaveBtn" class="primary" type="button">שמירת הודעה</button>
+        <span id="adminStatus" class="status-text"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="fantasyModal" class="overlay">
     <div class="modal-card wide-card">
       <button class="close-btn" data-close="fantasyModal">×</button>
@@ -317,6 +341,7 @@
 
   <div id="toast" class="toast"></div>
   <script src="/static/core.js" defer></script>
+  <script src="/static/admin.js?v=20260929-admin1" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
   <script src="/static/feed.js" defer></script>
   <script src="/static/create.js?v=20260929-tracks1" defer></script>

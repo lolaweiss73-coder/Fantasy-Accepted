@@ -45,7 +45,10 @@ $('#fantasyForm').onsubmit=async(e)=>{
   }catch(err){$('#createStatus').textContent=err.message}
 };
 
-$('#morinOpen').onclick=()=>openModal('morinModal');
+$('#morinOpen').onclick=()=>{
+  if(!$('#createView').classList.contains('active-view'))resetFantasyComposer();
+  openModal('morinModal');
+};
 $('#morinDraftBtn').onclick=()=>openModal('morinModal');
 
 const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;

@@ -2,6 +2,7 @@ import os
 import tempfile
 
 os.environ["FANTASY_DATA_DIR"] = tempfile.mkdtemp(prefix="fantasy-accepted-tests-")
+os.environ["ADMIN_PASSWORD"] = "test-admin-secret"
 
 from fastapi.testclient import TestClient
 from app import app
@@ -262,3 +263,28 @@ def test_general_and_adult_tracks_are_filtered_separately():
     assert adult["id"] in adult_ids
     assert general["id"] not in adult_ids
     assert all(item["kind"] == "adult" for item in adult_feed.json())
+
+
+def test_announcement_is_public_and_admin_controlled():
+    initial = client.get("/api/announcement")
+    assert initial.status_code == 200
+    assert initial.json()["text"] == "מזל טוב על הגרושים שלך מיסיס ר.ל."
+
+    denied = client.post(
+        "/api/admin/announcement",
+        headers={"X-Admin-Key": "wrong"},
+        json={"text": "הודעה חדשה"},
+    )
+    assert denied.status_code == 401
+
+    updated = client.post(
+        "/api/admin/announcement",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"text": "הודעה חדשה"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["text"] == "הודעה חדשה"
+
+    public = client.get("/api/announcement")
+    assert public.status_code == 200
+    assert public.json()["text"] == "הודעה חדשה"

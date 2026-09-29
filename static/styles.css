@@ -97,3 +97,17 @@ body:has(.announcement-bar) .topbar{top:38px}
   .notification-item{flex-direction:column}
   .notification-time{align-self:flex-start}
 }
+
+
+.workflow-pill{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;font-weight:900;white-space:nowrap}
+.workflow-pill.published,.workflow-pill.matching{background:rgba(155,109,255,.10)}
+.workflow-pill.connected{background:rgba(82,184,255,.12)}
+.workflow-pill.in_progress{background:rgba(255,190,92,.13)}
+.workflow-pill.fulfilled_pending{background:rgba(255,106,168,.12)}
+.workflow-pill.fulfilled{background:rgba(102,214,154,.14)}
+.workflow-pill.cancelled{opacity:.65}
+.workflow-summary,.workflow-mini{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 14px;font-size:13px;opacity:.78}
+.workflow-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:18px 0}
+.success-note{display:inline-flex;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(102,214,154,.12);border:1px solid rgba(102,214,154,.25);font-weight:800}
+.my-wish-card .row-top h3{margin:0}
+button.danger,.danger{border-color:rgba(255,95,95,.35);color:#ffb1b1}

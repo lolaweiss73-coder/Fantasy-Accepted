@@ -24,7 +24,7 @@ MINOR_TERM_PATTERN = re.compile(
 )
 
 INSTRUCTIONS = """You are Morin inside Fantasy Accepted.
-The user speaks freely about an adult fantasy. Convert it into a neutral, structured draft for the user to review.
+The user speaks freely about a wish or fantasy. It may be a general non-sexual wish or an adult sexual fantasy. Convert it into a neutral, structured draft for the user to review.
 Do not publish anything and do not claim the draft is consent to any real-world act.
 All participants in this service are adults 18+.
 Never invent missing ages, genders, locations, relationship status, or verification.
@@ -36,12 +36,16 @@ mode: one of online, meeting, either
 tags: array of short strings
 roles: array of EXTERNAL people still needed, with name, description, capacity, min_age, max_age, allowed_genders, region
 owner_participates: boolean
+kind: one of general, adult
 morin_response: a concise, warm response in the user's language that reflects what you understood without embellishing it
 clarifying_questions: array of at most 2 concise questions
 ready_to_draft: boolean
 blocked_reason: string or null
 
 The fantasy creator is already present in the system. Never create a recruitment role for the creator.
+Use kind=general for non-sexual wishes, help, experiences, creative requests, surprises, performances, or other ordinary requests.
+Use kind=adult for sexual or explicitly adult fantasies.
+If track_hint is supplied, respect it unless the content clearly requires the adult track.
 Set owner_participates=true when the creator is themselves part of the fantasy.
 Set owner_participates=false when the creator is only arranging something for other people.
 Ask a clarifying question only when the missing fact materially affects matching or who needs to be recruited. Do not interrogate the user for decorative details.
@@ -52,6 +56,7 @@ Unknown non-essential values should be empty strings, empty arrays, or null. Eve
 class StructureRequest(BaseModel):
     text: str = Field(min_length=10, max_length=12000)
     previous_questions: list[str] = Field(default_factory=list, max_length=2)
+    track_hint: str | None = Field(default=None, pattern="^(general|adult)$")
 
 
 class TranscriptionRequest(BaseModel):
@@ -82,26 +87,26 @@ def parse_json_content(content: str) -> dict:
     return result
 
 
-async def call_openai(text: str, previous_questions: list[str]) -> dict:
+async def call_openai(text: str, previous_questions: list[str], track_hint: str | None) -> dict:
     if not openai_client:
         raise RuntimeError("OpenAI not configured")
     response = await openai_client.responses.create(
         model=OPENAI_MODEL,
         reasoning={"effort": "low"},
         instructions=INSTRUCTIONS,
-        input=text + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else ""),
+        input=text + (("\nTrack hint: " + track_hint) if track_hint else "") + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else ""),
     )
     return parse_json_content(response.output_text or "")
 
 
-async def call_openrouter(text: str, previous_questions: list[str]) -> dict:
+async def call_openrouter(text: str, previous_questions: list[str], track_hint: str | None) -> dict:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OpenRouter not configured")
     payload = {
         "model": OPENROUTER_MODEL,
         "messages": [
             {"role": "system", "content": INSTRUCTIONS},
-            {"role": "user", "content": text + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else "")},
+            {"role": "user", "content": text + (("\nTrack hint: " + track_hint) if track_hint else "") + (("\nPrevious clarifying questions: " + json.dumps(previous_questions, ensure_ascii=False)) if previous_questions else "")},
         ],
         "temperature": 0.2,
     }
@@ -147,6 +152,7 @@ def normalize_result(result: dict, original_text: str) -> dict:
         )
     owner_participates = result.get("owner_participates")
     result["owner_participates"] = True if owner_participates is None else bool(owner_participates)
+    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else "general")
 
     creator_terms = ("יוזם", "יוזמת", "המפנטז", "המפנטזת", "מפרסם", "מפרסמת", "creator", "initiator", "owner")
     if result["owner_participates"]:
@@ -234,6 +240,7 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
             "tags": [],
             "roles": [],
             "owner_participates": False,
+            "kind": info.track_hint or "general",
             "morin_response": "",
             "clarifying_questions": [],
             "ready_to_draft": False,
@@ -244,13 +251,13 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
 
     if openai_client:
         try:
-            result = await call_openai(info.text, info.previous_questions)
+            result = await call_openai(info.text, info.previous_questions, info.track_hint)
         except Exception as exc:
             errors.append(f"openai:{type(exc).__name__}")
 
     if result is None and OPENROUTER_API_KEY:
         try:
-            result = await call_openrouter(info.text, info.previous_questions)
+            result = await call_openrouter(info.text, info.previous_questions, info.track_hint)
         except Exception as exc:
             errors.append(f"openrouter:{type(exc).__name__}")
 

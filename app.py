@@ -1053,6 +1053,9 @@ def get_fantasy(fantasy_id: str, authorization: str | None = Header(default=None
     if not row:
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
+    if row["status"] == "hidden" and row["owner_id"] != viewer["id"]:
+        con.close()
+        raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
     if row["visibility"] == "private" and row["owner_id"] != viewer["id"]:
         con.close()
         raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")

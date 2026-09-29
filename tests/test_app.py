@@ -637,3 +637,22 @@ def test_profile_can_store_optional_relationship_details_after_signup():
     assert data["marital_status"] == "divorced"
     assert data["relationship_status"] == "single"
     assert data["skills"] == ["צילום", "נהיגה"]
+
+
+def test_admin_hidden_wish_is_not_directly_viewable_by_other_users():
+    owner, owner_h = join("hidden-owner", 35, "female", "center")
+    viewer, viewer_h = join("hidden-viewer", 33, "male", "center")
+    wish = create_fantasy(owner_h, kind="general")
+
+    hidden = client.post(
+        f"/api/admin/fantasies/{wish['id']}/status",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"status": "hidden"},
+    )
+    assert hidden.status_code == 200
+
+    outsider = client.get(f"/api/fantasies/{wish['id']}", headers=viewer_h)
+    assert outsider.status_code == 404
+
+    owner_view = client.get(f"/api/fantasies/{wish['id']}", headers=owner_h)
+    assert owner_view.status_code == 200

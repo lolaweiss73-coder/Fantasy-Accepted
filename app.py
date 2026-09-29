@@ -170,6 +170,7 @@ def init_db() -> None:
             recipient_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
             text TEXT NOT NULL,
             fantasy_id TEXT REFERENCES fantasies(id) ON DELETE SET NULL,
+            site_mode TEXT NOT NULL DEFAULT 'adult',
             created_at REAL NOT NULL,
             read_at REAL
         );
@@ -216,6 +217,7 @@ def init_db() -> None:
             fantasy_id TEXT REFERENCES fantasies(id) ON DELETE CASCADE,
             role_id TEXT REFERENCES roles(id) ON DELETE CASCADE,
             actor_id TEXT REFERENCES identities(id) ON DELETE SET NULL,
+            site_mode TEXT NOT NULL DEFAULT 'adult',
             created_at REAL NOT NULL,
             read_at REAL
         );
@@ -276,6 +278,25 @@ def init_db() -> None:
             exists = any(row["name"] == column_name for row in con.execute("PRAGMA table_info(identities)").fetchall())
         if not exists:
             con.execute(f"ALTER TABLE identities ADD COLUMN {column_name} {column_sql}")
+
+    # Keep conversations and notifications isolated between the two public sites.
+    scoped_columns = [
+        ("messages", "site_mode", "TEXT NOT NULL DEFAULT 'adult'"),
+        ("notifications", "site_mode", "TEXT NOT NULL DEFAULT 'adult'"),
+    ]
+    for table_name, column_name, column_sql in scoped_columns:
+        if getattr(con, "postgres", False):
+            exists = con.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_name=? AND column_name=?",
+                (table_name, column_name),
+            ).fetchone()
+        else:
+            exists = any(
+                row["name"] == column_name
+                for row in con.execute(f"PRAGMA table_info({table_name})").fetchall()
+            )
+        if not exists:
+            con.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
     # One-time migration from the old single-announcement setting.
     # The marker prevents intentionally deleting every ticker message from
@@ -551,11 +572,18 @@ def add_notification(
     fantasy_id: str | None = None,
     role_id: str | None = None,
     actor_id: str | None = None,
+    site_mode: str | None = None,
 ) -> str:
     notification_id = uid()
+    resolved_mode = site_mode
+    if resolved_mode is None and fantasy_id:
+        fantasy = con.execute("SELECT kind FROM fantasies WHERE id=?", (fantasy_id,)).fetchone()
+        resolved_mode = fantasy["kind"] if fantasy else SITE_MODE
+    if resolved_mode not in ("general", "adult"):
+        resolved_mode = SITE_MODE
     con.execute(
-        "INSERT INTO notifications (id,recipient_id,kind,text,fantasy_id,role_id,actor_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (notification_id, recipient_id, kind, text, fantasy_id, role_id, actor_id, now()),
+        "INSERT INTO notifications (id,recipient_id,kind,text,fantasy_id,role_id,actor_id,site_mode,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (notification_id, recipient_id, kind, text, fantasy_id, role_id, actor_id, resolved_mode, now()),
     )
     return notification_id
 
@@ -996,9 +1024,7 @@ def list_notifications(authorization: str | None = Header(default=None)):
         """
         SELECT n.*
         FROM notifications n
-        LEFT JOIN fantasies f ON f.id=n.fantasy_id
-        WHERE n.recipient_id=?
-          AND (n.fantasy_id IS NULL OR f.kind=?)
+        WHERE n.recipient_id=? AND n.site_mode=?
         ORDER BY n.created_at DESC
         LIMIT 100
         """,
@@ -1013,8 +1039,8 @@ def read_notification(notification_id: str, authorization: str | None = Header(d
     person = current_identity(authorization)
     con = db()
     row = con.execute(
-        "SELECT id FROM notifications WHERE id=? AND recipient_id=?",
-        (notification_id, person["id"]),
+        "SELECT id FROM notifications WHERE id=? AND recipient_id=? AND site_mode=?",
+        (notification_id, person["id"], SITE_MODE),
     ).fetchone()
     if not row:
         con.close()
@@ -1474,10 +1500,10 @@ def inbox(authorization: str | None = Header(default=None)):
                MAX(created_at) AS last_ts,
                SUM(CASE WHEN recipient_id=? AND read_at IS NULL THEN 1 ELSE 0 END) AS unread
         FROM messages
-        WHERE sender_id=? OR recipient_id=?
+        WHERE (sender_id=? OR recipient_id=?) AND site_mode=?
         GROUP BY other_id ORDER BY last_ts DESC
         """,
-        (person["id"], person["id"], person["id"], person["id"]),
+        (person["id"], person["id"], person["id"], person["id"], SITE_MODE),
     ).fetchall()
     out = []
     for row in rows:
@@ -1496,16 +1522,17 @@ def conversation(other_id: str, authorization: str | None = Header(default=None)
         con.close()
         raise HTTPException(403, "אין גישה בין המשתמשים")
     con.execute(
-        "UPDATE messages SET read_at=? WHERE recipient_id=? AND sender_id=? AND read_at IS NULL",
-        (now(), person["id"], other_id),
+        "UPDATE messages SET read_at=? WHERE recipient_id=? AND sender_id=? AND site_mode=? AND read_at IS NULL",
+        (now(), person["id"], other_id, SITE_MODE),
     )
     rows = con.execute(
         """
         SELECT * FROM messages
-        WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
+        WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?))
+          AND site_mode=?
         ORDER BY created_at ASC LIMIT 200
         """,
-        (person["id"], other_id, other_id, person["id"]),
+        (person["id"], other_id, other_id, person["id"], SITE_MODE),
     ).fetchall()
     con.commit()
     con.close()
@@ -1525,21 +1552,21 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
         raise HTTPException(403, "אין גישה בין המשתמשים")
     if recipient["dnd"]:
         established = con.execute(
-            "SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1",
-            (sender["id"], recipient["id"], recipient["id"], sender["id"]),
+            "SELECT 1 FROM messages WHERE ((sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)) AND site_mode=? LIMIT 1",
+            (sender["id"], recipient["id"], recipient["id"], sender["id"], SITE_MODE),
         ).fetchone()
         if not established:
             con.close()
             raise HTTPException(409, "המשתמש/ת כרגע בהפסקה ולא מקבל/ת פניות חדשות")
     if info.fantasy_id:
         fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (info.fantasy_id,)).fetchone()
-        if not fantasy:
+        if not fantasy or fantasy["kind"] != SITE_MODE:
             con.close()
-            raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה")
+            raise HTTPException(404, "המשאלה או הפנטזיה לא נמצאה באתר הזה")
     message_id = uid()
     con.execute(
-        "INSERT INTO messages (id,sender_id,recipient_id,text,fantasy_id,created_at) VALUES (?,?,?,?,?,?)",
-        (message_id, sender["id"], recipient["id"], info.text.strip(), info.fantasy_id, now()),
+        "INSERT INTO messages (id,sender_id,recipient_id,text,fantasy_id,site_mode,created_at) VALUES (?,?,?,?,?,?,?)",
+        (message_id, sender["id"], recipient["id"], info.text.strip(), info.fantasy_id, SITE_MODE, now()),
     )
     add_notification(
         con,
@@ -1548,6 +1575,7 @@ def send_message(info: MessageCreate, authorization: str | None = Header(default
         f"הודעה חדשה מאת {sender['nickname']}",
         info.fantasy_id,
         actor_id=sender["id"],
+        site_mode=SITE_MODE,
     )
     con.commit()
     con.close()

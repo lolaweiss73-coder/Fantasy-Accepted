@@ -1,11 +1,15 @@
 # Fantasy Accepted
 
 **Name it. Match it. Make it real.**  
-Hebrew-first, adult-only fantasy discovery and matching product in the No Limit ecosystem.
+Hebrew-first wish and fantasy discovery product in the No Limit ecosystem.
+
+The product now has two hard-separated public experiences over the same backend and database:
+- **General wishes** — the default site, with no adult feed or adult content.
+- **Adult fantasies** — a separate 18+ experience with an age declaration before any adult UI is shown.
 
 This repository is a fresh implementation. It deliberately uses the same lightweight deployment style as `NoLimit-Chat` (FastAPI + SQLite + static frontend) so the two services can share infrastructure patterns while remaining separate products.
 
-## Current baseline — v0.1.0
+## Current baseline — v0.3.0
 
 Working flows:
 

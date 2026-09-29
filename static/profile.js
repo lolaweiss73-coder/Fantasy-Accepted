@@ -20,7 +20,7 @@ async function saveMatchingProfile(){
     availability:$('#profileAvailability').value.trim(),
     travel_radius_km:Number($('#profileTravel').value||0),
     bio:$('#profileBio').value.trim(),
-    adult_discovery:$('#profileAdultDiscovery').checked
+    adult_discovery:SITE_MODE==='adult' ? $('#profileAdultDiscovery').checked : Boolean(state.me?.adult_discovery)
   };
   $('#profileStatus').textContent='שומרת ומרעננת התאמות…';
   try{

@@ -1864,7 +1864,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
                     "Authorization": f"Bearer {gateway_token}",
                     "Content-Type": "application/json",
                 },
-                json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": SITE_MODE},
+                json={"text": info.text, "previous_questions": info.previous_questions, "track_hint": current_site_mode()},
             )
         if response.status_code >= 400:
             raise HTTPException(502, "מורין לא הצליחה לעבד את הבקשה כרגע")

@@ -58,6 +58,10 @@ function applyTrackUI(){
     :'מחווה, עזרה, יצירה, חוויה, הפתעה או רעיון אחר — ספרו למורין מה הייתם רוצים להגשים.';
   if($('#feedEmpty'))$('#feedEmpty').textContent=adult?'עדיין אין פנטזיות שמתאימות לחיפוש.':'עדיין אין משאלות שמתאימות לחיפוש.';
   if($('#createHeading'))$('#createHeading').textContent=adult?'יצירת פנטזיה':'יצירת משאלה';
+  if($('#morinHeading'))$('#morinHeading').textContent=adult?'ספרו לי את הפנטזיה כמו שהיא':'ספרו לי מה הייתם רוצים שיקרה';
+  if($('#morinIntro'))$('#morinIntro').textContent=adult
+    ?'אפשר לדבר אליי בקול או לכתוב. אני אעזור להפוך את הפנטזיה לטיוטה ברורה להתאמה.'
+    :'אפשר לדבר אליי בקול או לכתוב. ספרו על המשאלה בדרך שלכם ואני אעזור להבין מה צריך כדי להגשים אותה.';
   if($('#fantasyKind'))$('#fantasyKind').value=state.track;
 }
 

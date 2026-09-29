@@ -13,7 +13,7 @@
       <button id="menuBtn" class="icon-btn mobile-only" aria-label="תפריט">☰</button>
       <div>
         <div class="brand">FANTASY ACCEPTED</div>
-        <div class="tagline">לפנטז. להתחבר. בהסכמה.</div>
+        <div class="tagline">משאלה התקבלה · לבקש. להתחבר. להגשים.</div>
       </div>
     </div>
     <div class="top-actions">
@@ -25,8 +25,8 @@
 
   <main id="app" class="app-shell hidden">
     <aside class="sidebar" id="sidebar">
-      <button class="nav-btn active" data-view="feed">✨ פנטזיות</button>
-      <button class="nav-btn" data-view="create">＋ יצירת פנטזיה</button>
+      <button class="nav-btn active" data-view="feed">✨ משאלות</button>
+      <button class="nav-btn" data-view="create">＋ יצירת משאלה</button>
       <button class="nav-btn" data-view="inbox">✉️ הודעות</button>
       <div class="sidebar-spacer"></div>
       <button id="morinOpen" class="morin-nav">◉ מורין</button>
@@ -35,21 +35,25 @@
 
     <section class="content">
       <div id="feedView" class="view active-view">
+        <div class="track-tabs" role="group" aria-label="בחירת מסלול">
+          <button class="track-tab active" data-track="general" type="button">🌟 משאלות כלליות</button>
+          <button class="track-tab" data-track="adult" type="button">🔞 פנטזיות למבוגרים</button>
+        </div>
         <div class="hero-card">
           <div>
-            <div class="eyebrow">NAME IT. MATCH IT. MAKE IT REAL.</div>
-            <h1>מה הפנטזיה שלך?</h1>
-            <p>תארו מה אתם מחפשים, הגדירו את התפקידים והגבולות, ותנו להתאמה להתחיל מהפנטזיה עצמה.</p>
+            <div id="feedEyebrow" class="eyebrow">WISHES · IDEAS · EXPERIENCES</div>
+            <h1 id="feedTitle">מה היית רוצה שיקרה?</h1>
+            <p id="feedLead">מחווה, עזרה, יצירה, חוויה, הפתעה או רעיון אחר — ספרו למורין מה הייתם רוצים להגשים.</p>
           </div>
           <button id="heroCreate" class="primary large">ספרו למורין</button>
         </div>
 
         <div class="filters">
-          <input id="searchInput" placeholder="חיפוש בפנטזיות…">
+          <input id="searchInput" placeholder="חיפוש במשאלות…">
           <input id="regionFilter" placeholder="אזור">
           <button id="refreshBtn" class="ghost">רענון</button>
         </div>
-        <div id="feedEmpty" class="empty hidden">עדיין אין פנטזיות שמתאימות לחיפוש.</div>
+        <div id="feedEmpty" class="empty hidden">עדיין אין משאלות שמתאימות לחיפוש.</div>
         <div id="fantasyFeed" class="fantasy-grid"></div>
       </div>
 
@@ -57,7 +61,7 @@
         <div class="section-head">
           <div>
             <div class="eyebrow">CREATE</div>
-            <h1>יצירת פנטזיה</h1>
+            <h1 id="createHeading">יצירת משאלה</h1>
           </div>
           <button id="morinDraftBtn" class="morin-outline">ספרו למורין במקום למלא טופס</button>
         </div>
@@ -69,7 +73,7 @@
             <input id="fantasyTitle" maxlength="120" required placeholder="כמה מילים שמסבירות את הרעיון">
           </label>
           <label>תיאור
-            <textarea id="fantasyDescription" rows="7" maxlength="6000" required placeholder="תארו את הפנטזיה בדרך שלכם"></textarea>
+            <textarea id="fantasyDescription" rows="7" maxlength="6000" required placeholder="תארו את המשאלה או הפנטזיה בדרך שלכם"></textarea>
           </label>
           <div class="form-grid three">
             <label>אופי
@@ -90,6 +94,12 @@
               </select>
             </label>
           </div>
+          <label>מסלול
+            <select id="fantasyKind">
+              <option value="general">משאלה כללית</option>
+              <option value="adult">פנטזיה למבוגרים</option>
+            </select>
+          </label>
           <label>תגיות
             <input id="fantasyTags" placeholder="מופרדות בפסיקים">
           </label>
@@ -143,9 +153,24 @@
 
   <div id="gate" class="overlay open">
     <div class="modal-card gate-card">
-      <div class="eyebrow">FANTASY ACCEPTED</div>
-      <h1>לפנטז. להתחבר. בהסכמה.</h1>
-      <p class="lead">מרחב דיסקרטי לבוגרים שבו הפנטזיה היא נקודת ההתחלה.</p>
+      <div class="eyebrow">משאלה התקבלה · FANTASY ACCEPTED</div>
+      <h1>יש משהו שהיית רוצה שיקרה?</h1>
+      <p class="lead">זה המקום להתחיל ממנו. מחווה למישהו, עזרה, יצירה, חוויה, הפתעה, שותף לרעיון — וגם פנטזיה אינטימית למבוגרים.</p>
+
+      <div class="gate-track-grid" aria-label="בחירת מסלול">
+        <button class="track-choice active" data-track="general" type="button">
+          <strong>🌟 משאלות כלליות</strong>
+          <span>דברים שרוצים לעשות, לקבל, ליצור או להגשים — בלי תוכן מיני.</span>
+        </button>
+        <button class="track-choice" data-track="adult" type="button">
+          <strong>🔞 פנטזיות למבוגרים</strong>
+          <span>מסלול נפרד לפנטזיות אינטימיות ותוכן למבוגרים.</span>
+        </button>
+      </div>
+
+      <button id="welcomeMorinBtn" class="morin-outline large" type="button">💬 לא בטוחים? דברו עם מורין</button>
+
+      <div class="gate-divider"><span>כניסה לאתר</span></div>
       <div class="form-grid two">
         <label>כינוי<input id="nickname" maxlength="40" autocomplete="nickname"></label>
         <label>גיל<input id="age" type="number" min="18" max="120"></label>
@@ -181,11 +206,10 @@
           </select>
         </label>
       </div>
-      <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים ואני מבינ/ה שהשירות מיועד למבוגרים בלבד.</label>
-      <button id="enterBtn" class="primary large">כניסה ל־Fantasy Accepted</button>
-      <button id="welcomeMorinBtn" class="morin-outline large" type="button">💬 מה זה האתר? דברו עם מורין</button>
+      <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה שני המסלולים מיועדים כרגע למבוגרים.</label>
+      <button id="enterBtn" class="primary large">כניסה ל־משאלה התקבלה</button>
       <div id="gateError" class="error"></div>
-      <p class="fineprint">המיקום המוצג באתר הוא כללי בלבד. כתובת ומועד מדויקים נשארים בשיחה פרטית.</p>
+      <p class="fineprint">המסלול הכללי והמסלול למבוגרים מופרדים זה מזה. המיקום המוצג באתר הוא כללי בלבד; פרטים מדויקים נשארים בשיחה פרטית.</p>
     </div>
   </div>
 
@@ -295,7 +319,7 @@
   <script src="/static/core.js" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
   <script src="/static/feed.js" defer></script>
-  <script src="/static/create.js?v=20260929-flow7" defer></script>
+  <script src="/static/create.js?v=20260929-tracks1" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>
 </html>

@@ -127,7 +127,7 @@ async def call_openrouter(text: str, previous_questions: list[str], track_hint: 
     return parse_json_content(content)
 
 
-def normalize_result(result: dict, original_text: str) -> dict:
+def normalize_result(result: dict, original_text: str, track_hint: str | None = None) -> dict:
     roles = result.get("roles") or []
     if not isinstance(roles, list):
         roles = []
@@ -152,7 +152,7 @@ def normalize_result(result: dict, original_text: str) -> dict:
         )
     owner_participates = result.get("owner_participates")
     result["owner_participates"] = True if owner_participates is None else bool(owner_participates)
-    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else "general")
+    result["kind"] = "adult" if result.get("kind") == "adult" else ("general" if result.get("kind") == "general" else (track_hint or "general"))
 
     creator_terms = ("יוזם", "יוזמת", "המפנטז", "המפנטזת", "מפרסם", "מפרסמת", "creator", "initiator", "owner")
     if result["owner_participates"]:
@@ -265,4 +265,4 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
         print("Morin provider failure:", ",".join(errors))
         raise HTTPException(502, "Morin providers are temporarily unavailable")
 
-    return normalize_result(result, info.text)
+    return normalize_result(result, info.text, info.track_hint)

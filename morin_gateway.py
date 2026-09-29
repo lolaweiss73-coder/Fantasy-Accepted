@@ -159,7 +159,7 @@ def normalize_result(result: dict, original_text: str) -> dict:
     if not isinstance(questions, list):
         questions = []
     result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
-    result["ready_to_draft"] = bool(result.get("ready_to_draft")) and not result["clarifying_questions"]
+    result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
     result["morin_response"] = str(result.get("morin_response") or "").strip()
     result["roles"] = clean_roles
     result.setdefault("blocked_reason", None)

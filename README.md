@@ -35,6 +35,15 @@ Fantasy Acccepted is a separate product from:
 
 The products are intended to share identity/permission infrastructure later. **Morin is the cross-ecosystem AI layer**, not the identity hub itself.
 
+## Development site split
+
+During development both product surfaces run from one deployment and one domain:
+
+- `/` — general wishes only.
+- `/adult` — adult fantasies only, with an 18+ declaration gate before the product UI is exposed.
+
+Both surfaces share the identity/database infrastructure, while feeds, workflow access, messages and notifications are scoped to the current surface. The frontend sends the current surface with API calls, and the server enforces the matching content kind. This keeps development simple now and leaves the routing ready to move the two surfaces onto separate domains later without duplicating the application.
+
 ## Identity model
 
 A direct visitor can enter Fantasy Accepted first and receive a local anonymous identity. `identities.hub_subject` is reserved for future linking to the shared Identity Hub. That means the eventual flow can support both directions:

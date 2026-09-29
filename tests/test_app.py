@@ -370,3 +370,95 @@ def test_adult_proactive_matches_require_explicit_opt_in():
     notifications = client.get("/api/notifications", headers=candidate_h)
     assert notifications.status_code == 200
     assert any(n["fantasy_id"] == fantasy["id"] and n["kind"] == "match" for n in notifications.json())
+
+
+def test_wish_execution_lifecycle_requires_both_sides_to_confirm():
+    owner, owner_h = join("flow-owner", 38, "female", "center")
+    participant, participant_h = join("flow-participant", 32, "male", "center")
+    update_matching_profile(participant_h, skills=["שיחה"], adult_discovery=False)
+    wish = create_fantasy(owner_h, allowed_genders=["male"], min_age=25, max_age=40, kind="general")
+    role_id = wish["roles"][0]["id"]
+
+    applied = client.post(
+        f"/api/fantasies/{wish['id']}/apply",
+        headers=participant_h,
+        json={"role_id": role_id, "message": "אשמח להשתתף"},
+    )
+    assert applied.status_code == 200, applied.text
+
+    owner_notifications = client.get("/api/notifications", headers=owner_h)
+    assert owner_notifications.status_code == 200
+    assert any(
+        n["fantasy_id"] == wish["id"] and n["kind"] == "application_received"
+        for n in owner_notifications.json()
+    )
+
+    applications = client.get(f"/api/fantasies/{wish['id']}/applications", headers=owner_h)
+    assert applications.status_code == 200
+    application_id = applications.json()[0]["id"]
+
+    accepted = client.post(
+        f"/api/applications/{application_id}/status",
+        headers=owner_h,
+        json={"status": "accepted"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["fantasy_status"] == "connected"
+
+    start = client.post(
+        f"/api/fantasies/{wish['id']}/stage",
+        headers=owner_h,
+        json={"status": "in_progress"},
+    )
+    assert start.status_code == 200, start.text
+    assert start.json()["workflow"]["status"] == "in_progress"
+
+    participant_confirmation = client.post(
+        f"/api/fantasies/{wish['id']}/confirm-fulfilled",
+        headers=participant_h,
+    )
+    assert participant_confirmation.status_code == 200, participant_confirmation.text
+    assert participant_confirmation.json()["workflow"]["status"] == "in_progress"
+    assert participant_confirmation.json()["workflow"]["participant_confirmed"] is True
+    assert participant_confirmation.json()["workflow"]["owner_confirmed"] is False
+
+    owner_confirmation = client.post(
+        f"/api/fantasies/{wish['id']}/confirm-fulfilled",
+        headers=owner_h,
+    )
+    assert owner_confirmation.status_code == 200, owner_confirmation.text
+    assert owner_confirmation.json()["workflow"]["status"] == "fulfilled"
+    assert owner_confirmation.json()["workflow"]["owner_confirmed"] is True
+    assert owner_confirmation.json()["workflow"]["participant_confirmed"] is True
+
+    owner_wishes = client.get("/api/me/wishes", headers=owner_h)
+    assert owner_wishes.status_code == 200
+    assert any(
+        item["id"] == wish["id"] and item["workflow"]["status"] == "fulfilled"
+        for item in owner_wishes.json()
+    )
+
+    participant_wishes = client.get("/api/me/wishes", headers=participant_h)
+    assert participant_wishes.status_code == 200
+    assert any(
+        item["id"] == wish["id"] and item["workflow"]["status"] == "fulfilled"
+        for item in participant_wishes.json()
+    )
+
+
+def test_private_message_creates_notification():
+    sender, sender_h = join("message-sender", 31, "female", "center")
+    recipient, recipient_h = join("message-recipient", 33, "male", "center")
+    sent = client.post(
+        "/api/messages",
+        headers=sender_h,
+        json={"recipient_id": recipient["identity"]["id"], "text": "שלום, יש לי עדכון"},
+    )
+    assert sent.status_code == 200, sent.text
+
+    notifications = client.get("/api/notifications", headers=recipient_h)
+    assert notifications.status_code == 200
+    assert any(
+        n["kind"] == "message" and n["actor_id"] == sender["identity"]["id"]
+        for n in notifications.json()
+    )

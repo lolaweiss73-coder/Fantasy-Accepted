@@ -5,9 +5,21 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#120f1f">
   <title>משאלה התקבלה | Fantasy Accepted</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=20260930-sitesplit1">
 </head>
-<body>
+<body data-site-mode="__SITE_MODE__">
+  <div id="adultAgeGate" class="adult-age-gate" role="dialog" aria-modal="true" aria-labelledby="adultAgeTitle">
+    <div class="adult-age-card">
+      <div class="adult-age-mark">18+</div>
+      <div class="eyebrow">FANTASY ACCEPTED · ADULT</div>
+      <h1 id="adultAgeTitle">הכניסה למבוגרים בלבד</h1>
+      <p>האתר הזה כולל פנטזיות ותוכן אינטימי המיועדים למבוגרים.</p>
+      <p class="adult-age-declaration">בלחיצה על הכפתור אני מצהיר/ה שמלאו לי 18 שנים, שאני רשאי/ת לצפות בתוכן למבוגרים במקום שבו אני נמצא/ת, ושאני בוחר/ת להיכנס מרצוני.</p>
+      <button id="adultAgeAccept" class="primary large" type="button">אני בן/בת 18 ומעלה — כניסה</button>
+      <p class="fineprint">אם טרם מלאו לך 18, אין להיכנס לאתר זה.</p>
+    </div>
+  </div>
+
   <div id="announcementBar" class="announcement-bar" role="status" aria-live="polite" dir="rtl">
     <div class="announcement-viewport">
       <div id="announcementTrack" class="announcement-track"></div>
@@ -103,7 +115,7 @@
               </select>
             </label>
           </div>
-          <label>מסלול
+          <label id="fantasyKindLabel">מסלול
             <select id="fantasyKind">
               <option value="general">משאלה כללית</option>
               <option value="adult">פנטזיה למבוגרים</option>
@@ -218,10 +230,10 @@
         </label>
         <label>אזור<input id="region" maxlength="80" placeholder="אזור כללי בלבד"></label>
       </div>
-      <label class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה שני המסלולים מיועדים כרגע למבוגרים.</label>
+      <label id="generalAgeConfirm" class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה האתר הכללי מיועד כרגע למבוגרים.</label>
       <button id="enterBtn" class="primary large">כניסה ל־משאלה התקבלה</button>
       <div id="gateError" class="error"></div>
-      <p class="fineprint">בשלב ההשקה השירות מיועד לבני 18 ומעלה. המסלול הכללי והמסלול למבוגרים מופרדים זה מזה, והמיקום הציבורי נשאר כללי בלבד.</p>
+      <p id="gateFineprint" class="fineprint">בשלב ההשקה השירות הכללי מיועד לבני 18 ומעלה.</p>
     </div>
   </div>
 
@@ -408,7 +420,7 @@
       <label>קצת עליי
         <textarea id="profileBio" rows="4" maxlength="1200" placeholder="מידע שיעזור להתאים אותך נכון"></textarea>
       </label>
-      <label class="checkline"><input id="profileAdultDiscovery" type="checkbox"> אני רוצה לקבל התאמות יזומות גם מהמסלול למבוגרים</label>
+      <label id="profileAdultDiscoveryLabel" class="checkline"><input id="profileAdultDiscovery" type="checkbox"> אני רוצה לקבל התאמות יזומות גם מהמסלול למבוגרים</label>
 
       <div class="form-actions">
         <button id="profileSaveBtn" class="primary" type="button">שמירת פרופיל התאמה</button>
@@ -470,10 +482,10 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="/static/core.js?v=20260930-trackfix2" defer></script>
+  <script src="/static/core.js?v=20260930-sitesplit1" defer></script>
   <script src="/static/admin.js?v=20260929-admin4" defer></script>
-  <script src="/static/onboarding.js?v=20260930-onboarding4" defer></script>
-  <script src="/static/profile.js?v=20260929-qa1" defer></script>
+  <script src="/static/onboarding.js?v=20260930-sitesplit1" defer></script>
+  <script src="/static/profile.js?v=20260930-sitesplit1" defer></script>
   <script src="/static/feed.js?v=20260929-record1" defer></script>
   <script src="/static/workflow.js?v=20260929-workflow1" defer></script>
   <script src="/static/create.js?v=20260929-ux1" defer></script>

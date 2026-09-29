@@ -149,3 +149,26 @@ button.danger,.danger{border-color:rgba(255,95,95,.35);color:#ffb1b1}
   .gate-secondary-actions{flex-direction:column;align-items:stretch}
   .gate-secondary-actions button{width:100%}
 }
+
+
+/* Separate-site mode: the general and adult products never expose a track switch. */
+.track-tabs,.gate-track-grid,#fantasyKindLabel{display:none!important}
+body[data-site-mode="general"] #adultAgeGate{display:none!important}
+body[data-site-mode="general"] #profileAdultDiscoveryLabel{display:none!important}
+
+/* On the adult domain the age declaration is the only visible UI until accepted. */
+body[data-site-mode="adult"]:not(.adult-age-confirmed)>:not(#adultAgeGate):not(script){display:none!important}
+body[data-site-mode="adult"].adult-age-confirmed #adultAgeGate{display:none!important}
+.adult-age-gate{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(circle at 50% 15%,rgba(155,109,255,.17),transparent 32%),#09070d;color:var(--text)}
+.adult-age-card{width:min(560px,100%);border:1px solid #59406b;border-radius:26px;padding:28px;background:#171221;box-shadow:var(--shadow);text-align:center}
+.adult-age-card h1{font-size:34px;margin:10px 0 14px}
+.adult-age-card p{line-height:1.65;color:#d9cde2}
+.adult-age-mark{width:82px;height:82px;margin:0 auto 18px;border-radius:50%;display:grid;place-items:center;font-size:28px;font-weight:950;border:2px solid #ff8eb8;background:rgba(255,106,168,.10);color:#ffd3e4}
+.adult-age-declaration{padding:14px;border:1px solid var(--line);border-radius:15px;background:#100c17;text-align:right}
+.adult-age-card .primary{width:100%;margin-top:8px}
+body[data-site-mode="adult"] #generalAgeConfirm{display:none!important}
+@media(max-width:700px){
+  .adult-age-gate{padding:0;align-items:flex-end}
+  .adult-age-card{border-radius:24px 24px 0 0;padding:24px 18px}
+  .adult-age-card h1{font-size:29px}
+}

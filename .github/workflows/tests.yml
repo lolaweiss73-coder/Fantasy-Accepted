@@ -12,6 +12,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - run: python -m py_compile app.py
       - run: PYTHONPATH=. pytest -q
       - run: node --check static/core.js
       - run: node --check static/feed.js

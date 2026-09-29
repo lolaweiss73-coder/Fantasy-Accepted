@@ -65,6 +65,8 @@ function applyTrackUI(){
     ?'אפשר לדבר אליי בקול או לכתוב. אני אעזור להפוך את הפנטזיה לטיוטה ברורה להתאמה.'
     :'אפשר לדבר אליי בקול או לכתוב. ספרו על המשאלה בדרך שלכם ואני אעזור להבין מה צריך כדי להגשים אותה.';
   if($('#fantasyKind'))$('#fantasyKind').value=state.track;
+  if($('#ownerParticipationLabel'))$('#ownerParticipationLabel').textContent=adult?'יוזם/ת הפנטזיה':'יוזם/ת המשאלה';
+  if($('#ownerParticipatesNo'))$('#ownerParticipatesNo').textContent=adult?'מארגן/ת בלבד — הפנטזיה מיועדת לאחרים':'מארגן/ת בלבד — המשאלה מיועדת לאחרים';
 }
 
 function setTrack(track,{reload=true}={}){
@@ -105,8 +107,8 @@ $('#enterBtn').onclick = async () => {
   $('#gateError').textContent='';
   const payload = {
     nickname: $('#nickname').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
-    region:$('#region').value.trim(), marital_status:$('#maritalStatus').value,
-    relationship_status:$('#relationshipStatus').value, adult_confirm:$('#adultConfirm').checked
+    region:$('#region').value.trim(), marital_status:$('#maritalStatus')?.value||'prefer_not_to_say',
+    relationship_status:$('#relationshipStatus')?.value||'prefer_not_to_say', adult_confirm:$('#adultConfirm').checked
   };
   if(!payload.nickname || payload.age < 18 || !payload.gender || !payload.adult_confirm){
     $('#gateError').textContent='צריך כינוי, גיל 18+, מגדר ואישור גיל.'; return;
@@ -125,3 +127,8 @@ $('#dndBtn').onclick=async()=>{
   }catch(err){toast(err.message)}
 };
 
+
+
+if($('#nameStoryBtn')){
+  $('#nameStoryBtn').onclick=()=>openModal('nameStoryModal');
+}

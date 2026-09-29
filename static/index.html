@@ -325,6 +325,34 @@
         <h3>הודעות פעילות</h3>
         <div id="adminAnnouncementList" class="admin-announcement-list"></div>
       </div>
+
+      <div class="admin-ops">
+        <div class="section-head compact">
+          <div>
+            <div class="eyebrow">OPERATIONS</div>
+            <h3>מרכז ניהול</h3>
+          </div>
+          <button id="adminLoadDashboard" class="ghost" type="button">טעינת נתוני ניהול</button>
+        </div>
+        <div id="adminDashboard" class="hidden">
+          <div id="adminStats" class="admin-stats"></div>
+
+          <div class="admin-section">
+            <h3>דיווחים</h3>
+            <div id="adminReports" class="admin-table-list"></div>
+          </div>
+
+          <div class="admin-section">
+            <h3>משאלות ופרסומים</h3>
+            <div id="adminWishes" class="admin-table-list"></div>
+          </div>
+
+          <div class="admin-section">
+            <h3>משתמשים</h3>
+            <div id="adminUsers" class="admin-table-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -334,6 +362,9 @@
       <div class="eyebrow">PROFILE</div>
       <h2>מה מורין צריכה לדעת כדי להתאים לך משאלות?</h2>
       <p class="muted">הפרטים האלה משמשים להתאמות. אפשר לעדכן אותם בכל רגע.</p>
+      <div id="profileActivitySummary" class="activity-summary">
+        <span>הגשמות מתועדות: טוענת…</span>
+      </div>
 
       <div class="form-grid two">
         <label>אזור
@@ -416,10 +447,10 @@
 
   <div id="toast" class="toast"></div>
   <script src="/static/core.js" defer></script>
-  <script src="/static/admin.js?v=20260929-admin3" defer></script>
+  <script src="/static/admin.js?v=20260929-admin4" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
-  <script src="/static/profile.js?v=20260929-matching1" defer></script>
-  <script src="/static/feed.js?v=20260929-workflow1" defer></script>
+  <script src="/static/profile.js?v=20260929-record1" defer></script>
+  <script src="/static/feed.js?v=20260929-record1" defer></script>
   <script src="/static/workflow.js?v=20260929-workflow1" defer></script>
   <script src="/static/create.js?v=20260929-tracks1" defer></script>
   <script src="/static/inbox.js" defer></script>

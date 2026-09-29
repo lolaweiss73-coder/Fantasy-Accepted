@@ -1,23 +1,27 @@
 const welcomeIntro = [
   SITE_MODE==='adult'
-    ? 'היי, אני מורין. הגעת ל-Fantasy Accepted, האתר הנפרד לפנטזיות למבוגרים. אני אסביר בקצרה איך זה עובד.'
-    : 'היי, אני מורין. הגעת למשאלה התקבלה. אני כאן כדי להסביר לך מה האתר עושה ואיך משתמשים בו.'
+    ? 'היי, אני מורין. הגעתם ל-Fantasy Accepted, האזור הנפרד לפנטזיות למבוגרים. הנה הסבר קצר על האתר.'
+    : 'היי, אני מורין. הגעתם למשאלה התקבלה. הנה הסבר קצר על האתר.'
 ];
 
 const welcomeExplanation = SITE_MODE==='adult' ? [
-  'כאן מתחילים מפנטזיה שהייתם רוצים להגשים, ומתארים אותה בדרך שלכם.',
-  'אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים חשובים להתאמה. המסלול הזה מופרד מהאתר הכללי ומיועד לבני 18 ומעלה בלבד.',
-  'אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם, והאתר ממשיך איתכם דרך התאמות, חיבור בין המשתתפים ושלבי הביצוע.'
+  'מתחילים מפנטזיה שרוצים להגשים ומתארים אותה במילים חופשיות.',
+  'אני עוזרת להבין מי צריך להשתתף, מה חסר ואילו פרטים חשובים להתאמה. האזור הזה נפרד מהאתר הכללי ומיועד לבני 18 ומעלה בלבד.',
+  'אחר כך נוצרת טיוטה לבדיקה ולפרסום, והאתר ממשיך דרך התאמות, חיבור בין משתתפים ושלבי הביצוע.'
 ] : [
-  'משאלה התקבלה הוא מקום שבו מתחילים ממשהו שהייתם רוצים שיקרה: עזרה, מחווה, יצירה, חוויה, הפתעה, שותף לרעיון או משהו אחר שאתם רוצים להגשים.',
-  'זה האתר הכללי בלבד. פנטזיות ותוכן מיני נמצאים במוצר נפרד ואינם מופיעים כאן.',
-  'מספרים לי מה רוצים. אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים באמת חשובים להתאמה. אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם, והאתר ממשיך איתכם דרך ההתאמות ועד לביצוע.'
+  'מתחילים ממשהו שרוצים שיקרה: עזרה, מחווה, יצירה, חוויה, הפתעה, שותפות לרעיון או משהו אחר שרוצים להגשים.',
+  'זה האתר הכללי בלבד. פנטזיות ותוכן מיני נמצאים באזור נפרד ואינם מופיעים כאן.',
+  'מספרים לי מה רוצים. אני עוזרת להבין מי צריך להשתתף, מה חסר ואילו פרטים חשובים להתאמה. אחר כך נוצרת טיוטה לבדיקה ולפרסום, והאתר ממשיך דרך ההתאמות ועד לביצוע.'
 ];
 
-const WELCOME_SEEN_KEY=SITE_MODE==='adult'?'faAdultWelcomeExplainedV1':'faGeneralWelcomeExplainedV1';
-let welcomeVoiceMode=localStorage.getItem('faPreferredVoice')==='male'?'male':'female';
+const WELCOME_SEEN_KEY=SITE_MODE==='adult'?'faAdultWelcomeExplainedV2':'faGeneralWelcomeExplainedV2';
 let welcomeVoices=[];
-let welcomeAutoReplayArmed=false;
+let welcomeAudioEnabled=false;
+let welcomeRecordedAudio=null;
+
+function welcomeLines(){
+  return [...welcomeIntro,...welcomeExplanation];
+}
 
 function refreshWelcomeVoices(){
   if(!('speechSynthesis' in window))return;
@@ -28,42 +32,60 @@ if('speechSynthesis' in window && 'onvoiceschanged' in window.speechSynthesis){
   window.speechSynthesis.onvoiceschanged=refreshWelcomeVoices;
 }
 
-function voiceScore(voice,mode){
-  const name=String(voice?.name||'').toLowerCase();
-  const lang=String(voice?.lang||'').toLowerCase();
-  let score=0;
-  if(lang==='he-il')score+=100;
-  else if(lang.startsWith('he'))score+=80;
-  const female=['hila','הילה','yael','יעל','carmit','כרמית','carmel','כרמל','ava','samantha','female'];
-  const male=['asaf','אסף','avi','אבי','david','daniel','male'];
-  const wanted=mode==='male'?male:female;
-  const other=mode==='male'?female:male;
-  if(wanted.some(t=>name.includes(t)))score+=35;
-  if(other.some(t=>name.includes(t)))score-=15;
-  return score;
-}
-
-function pickWelcomeVoice(mode){
+function pickWelcomeVoice(){
   refreshWelcomeVoices();
   if(!welcomeVoices.length)return null;
-  const ranked=[...welcomeVoices].sort((a,b)=>voiceScore(b,mode)-voiceScore(a,mode));
-  return ranked[0]||null;
+  const female=['hila','הילה','yael','יעל','carmit','כרמית','carmel','כרמל','ava','samantha','female'];
+  return [...welcomeVoices].sort((a,b)=>{
+    const score=v=>{
+      const name=String(v?.name||'').toLowerCase();
+      const lang=String(v?.lang||'').toLowerCase();
+      let n=lang==='he-il'?100:(lang.startsWith('he')?80:0);
+      if(female.some(t=>name.includes(t)))n+=30;
+      return n;
+    };
+    return score(b)-score(a);
+  })[0]||null;
 }
 
-function appendWelcomeTranscript(text,speaker='מורין'){
-  const box=$('#welcomeTranscript');
-  const line=`${speaker}: ${String(text||'').trim()}`;
-  box.value=(box.value?box.value+'\n\n':'')+line;
-  box.scrollTop=box.scrollHeight;
+function stopWelcomeAudio(){
+  if('speechSynthesis' in window)window.speechSynthesis.cancel();
+  if(welcomeRecordedAudio){
+    try{
+      welcomeRecordedAudio.pause();
+      welcomeRecordedAudio.currentTime=0;
+    }catch{}
+  }
 }
 
-function speakWelcome(text,mode=welcomeVoiceMode){
+function recordedWelcomeUrl(){
+  return String(document.body.dataset.welcomeAudio||'').trim();
+}
+
+async function playRecordedWelcome(){
+  const src=recordedWelcomeUrl();
+  if(!src)return false;
+  try{
+    if(!welcomeRecordedAudio || welcomeRecordedAudio.src!==new URL(src,location.href).href){
+      welcomeRecordedAudio=new Audio(src);
+      welcomeRecordedAudio.preload='auto';
+    }
+    welcomeRecordedAudio.currentTime=0;
+    await welcomeRecordedAudio.play();
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+function speakWelcome(text){
+  if(!welcomeAudioEnabled)return false;
   if(!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window))return false;
   const utterance=new SpeechSynthesisUtterance(String(text||''));
   utterance.lang='he-IL';
-  utterance.rate=0.96;
-  utterance.pitch=mode==='male'?0.86:1.06;
-  const voice=pickWelcomeVoice(mode);
+  utterance.rate=0.94;
+  utterance.pitch=1.02;
+  const voice=pickWelcomeVoice();
   if(voice)utterance.voice=voice;
   try{
     window.speechSynthesis.speak(utterance);
@@ -73,23 +95,43 @@ function speakWelcome(text,mode=welcomeVoiceMode){
   }
 }
 
-function speakWelcomeSequence(){
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();
-  for(const line of [...welcomeIntro,...welcomeExplanation])speakWelcome(line,welcomeVoiceMode);
+async function playWelcomeSequence(){
+  stopWelcomeAudio();
+  welcomeAudioEnabled=true;
+  if(await playRecordedWelcome())return;
+  for(const line of welcomeLines())speakWelcome(line);
 }
 
-function welcomeSay(text,{showBubble=true,voiceMode=welcomeVoiceMode,speaker='מורין',speak=true}={}){
+function appendWelcomeTranscript(text,speaker='מורין'){
+  const box=$('#welcomeTranscript');
+  const line=`${speaker}: ${String(text||'').trim()}`;
+  box.value=(box.value?box.value+'\n\n':'')+line;
+  box.scrollTop=box.scrollHeight;
+}
+
+function appendWelcomeBubble(text){
+  const root=$('#welcomeMorinChat');
+  const bubble=document.createElement('div');
+  bubble.className='welcome-bubble morin-bubble';
+  bubble.textContent=text;
+  root.append(bubble);
+}
+
+function renderWelcomeText(){
+  $('#welcomeMorinChat').replaceChildren();
+  $('#welcomeTranscript').value='';
+  for(const line of welcomeLines()){
+    appendWelcomeBubble(line);
+    appendWelcomeTranscript(line);
+  }
+}
+
+function welcomeSay(text,{speak=false,speaker='מורין'}={}){
   const clean=String(text||'').trim();
   if(!clean)return;
-  if(showBubble){
-    const root=$('#welcomeMorinChat');
-    const bubble=document.createElement('div');
-    bubble.className='welcome-bubble morin-bubble';
-    bubble.textContent=clean;
-    root.append(bubble);
-  }
+  appendWelcomeBubble(clean);
   appendWelcomeTranscript(clean,speaker);
-  if(speak)speakWelcome(clean,voiceMode);
+  if(speak && welcomeAudioEnabled && !recordedWelcomeUrl())speakWelcome(clean);
 }
 
 function normalizeInitials(value){
@@ -98,9 +140,9 @@ function normalizeInitials(value){
     .replace(/[\s."'״׳’_-]/g,'');
 }
 
-function resetWelcome({auto=false}={}){
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();
-  welcomeVoiceMode=localStorage.getItem('faPreferredVoice')==='male'?'male':'female';
+function resetWelcome(){
+  stopWelcomeAudio();
+  welcomeAudioEnabled=false;
   $('#welcomeMorinChat').replaceChildren();
   $('#welcomeTranscript').value='';
   $('#welcomeVoiceStep').classList.remove('hidden');
@@ -110,65 +152,57 @@ function resetWelcome({auto=false}={}){
   $('#welcomePersonalMessage').classList.add('hidden');
   $('#welcomeInitials').value='';
   $('#welcomeHowBtn').disabled=false;
-
-  for(const line of welcomeIntro)welcomeSay(line,{voiceMode:welcomeVoiceMode});
-  for(const line of welcomeExplanation)welcomeSay(line,{voiceMode:welcomeVoiceMode});
-
-  const voiceQuestion='אם תרצו, אפשר לבחור כאן קול נשי או גברי להסבר.';
-  appendWelcomeTranscript(voiceQuestion);
-  welcomeAutoReplayArmed=auto;
 }
 
 function markWelcomeSeen(){
   localStorage.setItem(WELCOME_SEEN_KEY,'1');
-  welcomeAutoReplayArmed=false;
 }
 
-function continueWelcomeAfterVoiceChoice(mode){
-  welcomeVoiceMode=mode;
-  localStorage.setItem('faPreferredVoice',mode);
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();
-  const answer=mode==='male'
-    ? 'מעולה. ממשיכים בקול גברי.'
-    : 'מעולה. ממשיכים איתי, מורין.';
-  welcomeSay(answer,{voiceMode:mode});
-  speakWelcomeSequence();
+async function startWelcomeWithAudio(){
+  renderWelcomeText();
+  $('#welcomeVoiceStep').classList.add('hidden');
+  await playWelcomeSequence();
+}
+
+function startWelcomeTextOnly(){
+  stopWelcomeAudio();
+  welcomeAudioEnabled=false;
+  renderWelcomeText();
+  $('#welcomeVoiceStep').classList.add('hidden');
 }
 
 $('#welcomeMorinBtn').onclick=()=>{
-  resetWelcome({auto:false});
+  resetWelcome();
   openModal('welcomeMorinModal');
 };
 
-$('#welcomeReplayBtn').onclick=()=>{
-  welcomeAutoReplayArmed=false;
-  speakWelcomeSequence();
-};
+$('#welcomeFemaleVoice').onclick=startWelcomeWithAudio;
+$('#welcomeTextOnly').onclick=startWelcomeTextOnly;
 
-$('#welcomeFemaleVoice').onclick=()=>continueWelcomeAfterVoiceChoice('female');
-$('#welcomeMaleVoice').onclick=()=>continueWelcomeAfterVoiceChoice('male');
+$('#welcomeReplayBtn').onclick=async()=>{
+  if(!$('#welcomeMorinChat').children.length)renderWelcomeText();
+  await playWelcomeSequence();
+};
 
 $('#welcomeHowBtn').onclick=()=>{
   $('#welcomeHowStep').classList.remove('hidden');
   $('#welcomeHowBtn').disabled=true;
   const text=SITE_MODE==='adult'
-    ? 'דוגמה: אפשר לתאר פנטזיה במילים שלכם. אני אזהה מי חסר כדי להגשים אותה, אשאל רק שאלות שמשפיעות על ההתאמה, ואבנה טיוטה שתמיד אפשר לבדוק לפני הפרסום.'
-    : 'דוגמה: אפשר לומר “אני רוצה שמישהו יבוא לגרושה שלי וישיר לה שיר”. אני אבין שהיוזם הוא מארגן בלבד, שהאדם החסר הוא מבצע או מבצעת, ואשאל רק שאלות שבאמת משפיעות על ההתאמה.';
-  appendWelcomeTranscript(text);
-  speakWelcome(text);
+    ? 'דוגמה: מתארים פנטזיה במילים חופשיות. אני מזהה מי חסר כדי להגשים אותה, שואלת רק שאלות שמשפיעות על ההתאמה, ובונה טיוטה שאפשר לבדוק לפני הפרסום.'
+    : 'דוגמה: אפשר לומר “אני רוצה שמישהו יבוא לגרושה שלי וישיר לה שיר”. אני מזהה שהיוזם מארגן את המשאלה, שהאדם החסר הוא מבצע או מבצעת, ושואלת רק שאלות שמשפיעות על ההתאמה.';
+  welcomeSay(text,{speak:true});
 };
 
 $('#welcomeFromAviBtn').onclick=()=>{
   $('#welcomeAviStep').classList.remove('hidden');
-  const text='אבי אולי השאיר לך הודעה אישית. מה ראשי התיבות של השם שלך?';
-  appendWelcomeTranscript(text);
-  speakWelcome(text);
+  const text='אבי אולי השאיר כאן הודעה אישית. אפשר להזין את ראשי התיבות של השם.';
+  welcomeSay(text,{speak:true});
   $('#welcomeInitials').focus();
 };
 
 $('#welcomeDoneBtn').onclick=()=>{
   markWelcomeSeen();
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();
+  stopWelcomeAudio();
   closeModal('welcomeMorinModal');
 };
 
@@ -179,11 +213,9 @@ $('#welcomeInitialsBtn').onclick=()=>{
 
   if(initials==='אס' || initials==='as'){
     $('#welcomeAnnetteConfirm').classList.remove('hidden');
-    const text='רק כדי לוודא, את אנט סמירנוף?';
-    appendWelcomeTranscript(text);
-    speakWelcome(text);
+    welcomeSay('רק כדי לוודא, מדובר באנט סמירנוף?',{speak:true});
   }else if(initials){
-    welcomeSay('לא מצאתי הודעה אישית לפי ראשי התיבות האלה, אבל ההסבר על האתר כמובן פתוח לכולם.');
+    welcomeSay('לא נמצאה הודעה אישית לפי ראשי התיבות האלה, אבל ההסבר על האתר פתוח לכולם.',{speak:true});
   }
 };
 
@@ -202,45 +234,33 @@ $('#welcomeAnnetteYes').onclick=()=>{
     'הוא עובד על כמה רעיונות שהוא מאמין שיכולים לשנות תחומים שלמים, למשל טכנולוגיית ריח לסרטים ול-VR, ומיזם EL של מוצרים שנועדו להחזיק מעמד זמן קיצוני כדי להפחית את הצורך לקנות שוב ושוב.',
     'הוא גם חושב הרבה על ההשפעה הכלכלית של בינה מלאכותית ועל דרכים להוריד יוקר מחיה ולתת לאנשים יותר ביטחון ומשמעות. הוא ביקש שאגיד לך שהשאיפות שלו הרבה יותר גדולות מהמצב שבו הוא נמצא היום, ושזה בדיוק הפער שהוא מתכוון לסגור.'
   ];
-  for(const text of lines){
-    appendWelcomeTranscript(text);
-    speakWelcome(text);
-  }
+  for(const text of lines)welcomeSay(text,{speak:true});
 };
 
 $('#welcomeAnnetteNo').onclick=()=>{
   $('#welcomeAnnetteConfirm').classList.add('hidden');
-  welcomeSay('אז כנראה שההודעה האישית לא נועדה לך. עכשיו לפחות אני יודעת שלא לנחש אנשים לפי שתי אותיות 😄');
+  welcomeSay('אז כנראה שההודעה האישית לא נועדה לכאן. שתי אותיות הן עדיין לא מערכת זיהוי מושלמת 😄',{speak:true});
 };
 
 const welcomeCloseBtn=$('#welcomeMorinModal [data-close="welcomeMorinModal"]');
 if(welcomeCloseBtn){
   welcomeCloseBtn.addEventListener('click',()=>{
     markWelcomeSeen();
-    if('speechSynthesis' in window)window.speechSynthesis.cancel();
+    stopWelcomeAudio();
   });
 }
 
 $('#welcomeMorinModal').addEventListener('click',e=>{
   if(e.target===$('#welcomeMorinModal')){
     markWelcomeSeen();
-    if('speechSynthesis' in window)window.speechSynthesis.cancel();
+    stopWelcomeAudio();
   }
 });
-
-// Mobile browsers may refuse text-to-speech until the first user gesture.
-// If the automatic attempt was blocked, the first tap inside the explanation
-// replays it without requiring a special "start" flow.
-document.addEventListener('pointerdown',()=>{
-  if(!welcomeAutoReplayArmed || !$('#welcomeMorinModal').classList.contains('open'))return;
-  welcomeAutoReplayArmed=false;
-  speakWelcomeSequence();
-},{capture:true});
 
 function maybeOpenWelcome(){
   if(SITE_MODE==='adult' && !document.body.classList.contains('adult-age-confirmed'))return;
   if(!state.token && !localStorage.getItem(WELCOME_SEEN_KEY) && !$('#welcomeMorinModal').classList.contains('open')){
-    resetWelcome({auto:true});
+    resetWelcome();
     openModal('welcomeMorinModal');
   }
 }

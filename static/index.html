@@ -23,6 +23,8 @@
     </div>
     <div class="top-actions">
       <button id="adminBtn" class="ghost admin-btn" type="button" aria-label="ניהול האתר">⚙️ ניהול</button>
+      <button id="notificationsBtn" class="ghost hidden" type="button" aria-label="התראות">🔔 <span id="notificationsBadge" class="notification-badge hidden">0</span></button>
+      <button id="profileBtn" class="ghost hidden" type="button">👤 פרופיל</button>
       <span id="meBadge" class="user-badge hidden"></span>
       <button id="dndBtn" class="ghost hidden">בהפסקה: כבוי</button>
       <button id="logoutBtn" class="ghost hidden">יציאה</button>
@@ -313,6 +315,54 @@
     </div>
   </div>
 
+  <div id="profileModal" class="overlay">
+    <div class="modal-card wide-card">
+      <button class="close-btn" data-close="profileModal">×</button>
+      <div class="eyebrow">PROFILE</div>
+      <h2>מה מורין צריכה לדעת כדי להתאים לך משאלות?</h2>
+      <p class="muted">הפרטים האלה משמשים להתאמות. אפשר לעדכן אותם בכל רגע.</p>
+
+      <div class="form-grid two">
+        <label>אזור
+          <input id="profileRegion" maxlength="80" placeholder="למשל מרכז">
+        </label>
+        <label>מרחק נסיעה שמתאים לי
+          <div class="input-with-unit"><input id="profileTravel" type="number" min="0" max="500" value="0"><span>ק״מ</span></div>
+        </label>
+      </div>
+
+      <label>מה אני יודע/ת או רוצה לעשות
+        <input id="profileSkills" maxlength="600" placeholder="למשל: שירה, צילום, נהיגה, בישול, עיצוב, נגינה">
+      </label>
+      <label>זמינות
+        <input id="profileAvailability" maxlength="160" placeholder="למשל: ערבים, סופי שבוע, גמיש/ה">
+      </label>
+      <label>קצת עליי
+        <textarea id="profileBio" rows="4" maxlength="1200" placeholder="מידע שיעזור להתאים אותך נכון"></textarea>
+      </label>
+      <label class="checkline"><input id="profileAdultDiscovery" type="checkbox"> אני רוצה לקבל התאמות יזומות גם מהמסלול למבוגרים</label>
+
+      <div class="form-actions">
+        <button id="profileSaveBtn" class="primary" type="button">שמירת פרופיל התאמה</button>
+        <span id="profileStatus" class="status-text"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="notificationsModal" class="overlay">
+    <div class="modal-card wide-card">
+      <button class="close-btn" data-close="notificationsModal">×</button>
+      <div class="eyebrow">MORIN MATCHES</div>
+      <h2>מה מורין מצאה בשבילך</h2>
+      <p class="muted">התאמות והודעות שדורשות ממך תשומת לב.</p>
+      <div id="notificationsList" class="notifications-list"></div>
+      <div class="section-head compact">
+        <div><h3>התאמות פעילות</h3></div>
+      </div>
+      <div id="matchesList" class="matches-list"></div>
+    </div>
+  </div>
+
   <div id="fantasyModal" class="overlay">
     <div class="modal-card wide-card">
       <button class="close-btn" data-close="fantasyModal">×</button>
@@ -355,7 +405,8 @@
   <script src="/static/core.js" defer></script>
   <script src="/static/admin.js?v=20260929-admin3" defer></script>
   <script src="/static/onboarding.js?v=20260929-onboarding2" defer></script>
-  <script src="/static/feed.js" defer></script>
+  <script src="/static/profile.js?v=20260929-matching1" defer></script>
+  <script src="/static/feed.js?v=20260929-matching1" defer></script>
   <script src="/static/create.js?v=20260929-tracks1" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>

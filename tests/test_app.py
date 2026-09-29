@@ -5,7 +5,7 @@ os.environ["FANTASY_DATA_DIR"] = tempfile.mkdtemp(prefix="fantasy-accepted-tests
 os.environ["ADMIN_PASSWORD"] = "test-admin-secret"
 
 from fastapi.testclient import TestClient
-from app import app
+from app import app, init_db
 
 client = TestClient(app)
 
@@ -268,8 +268,7 @@ def test_general_and_adult_tracks_are_filtered_separately():
 def test_announcement_list_is_public_and_admin_can_add_edit_delete():
     initial = client.get("/api/announcements")
     assert initial.status_code == 200
-    initial_items = initial.json()
-    assert any(item["text"] == "מזל טוב על הגרושים שלך מיסיס ר.ל." for item in initial_items)
+    assert isinstance(initial.json(), list)
 
     denied = client.post(
         "/api/admin/announcements",
@@ -278,18 +277,26 @@ def test_announcement_list_is_public_and_admin_can_add_edit_delete():
     )
     assert denied.status_code == 401
 
-    added = client.post(
+    first = client.post(
+        "/api/admin/announcements",
+        headers={"X-Admin-Key": "test-admin-secret"},
+        json={"text": "מזל טוב על הגירושים גברת ר.ל."},
+    )
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    second = client.post(
         "/api/admin/announcements",
         headers={"X-Admin-Key": "test-admin-secret"},
         json={"text": "חג סוכות שמח לכל בית ישראל"},
     )
-    assert added.status_code == 200
-    added_id = added.json()["id"]
+    assert second.status_code == 200
+    second_id = second.json()["id"]
 
     public = client.get("/api/announcements")
     assert public.status_code == 200
     texts = [item["text"] for item in public.json()]
-    assert "מזל טוב על הגרושים שלך מיסיס ר.ל." in texts
+    assert "מזל טוב על הגירושים גברת ר.ל." in texts
     assert "חג סוכות שמח לכל בית ישראל" in texts
 
     aggregate = client.get("/api/announcement")
@@ -297,22 +304,34 @@ def test_announcement_list_is_public_and_admin_can_add_edit_delete():
     assert " ✦ " in aggregate.json()["text"]
 
     edited = client.put(
-        f"/api/admin/announcements/{added_id}",
+        f"/api/admin/announcements/{second_id}",
         headers={"X-Admin-Key": "test-admin-secret"},
         json={"text": "חג שמח לכל בית ישראל"},
     )
     assert edited.status_code == 200
     assert edited.json()["text"] == "חג שמח לכל בית ישראל"
 
-    deleted = client.delete(
-        f"/api/admin/announcements/{added_id}",
+    deleted_second = client.delete(
+        f"/api/admin/announcements/{second_id}",
         headers={"X-Admin-Key": "test-admin-secret"},
     )
-    assert deleted.status_code == 200
+    assert deleted_second.status_code == 200
 
-    after_delete = client.get("/api/announcements")
-    assert after_delete.status_code == 200
-    assert all(item["id"] != added_id for item in after_delete.json())
+    deleted_first = client.delete(
+        f"/api/admin/announcements/{first_id}",
+        headers={"X-Admin-Key": "test-admin-secret"},
+    )
+    assert deleted_first.status_code == 200
+
+    empty = client.get("/api/announcements")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    # A server restart must not resurrect the old single-message setting.
+    init_db()
+    after_restart = client.get("/api/announcements")
+    assert after_restart.status_code == 200
+    assert after_restart.json() == []
 
 
 def update_matching_profile(headers, *, skills=None, region="center", availability="evenings", adult_discovery=False):

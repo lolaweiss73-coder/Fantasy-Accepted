@@ -1,14 +1,20 @@
 const welcomeIntro = [
-  'היי, אני מורין. אני כאן כדי להסביר לך מה האתר הזה עושה ואיך משתמשים בו.'
+  SITE_MODE==='adult'
+    ? 'היי, אני מורין. הגעת ל-Fantasy Accepted, האתר הנפרד לפנטזיות למבוגרים. אני אסביר בקצרה איך זה עובד.'
+    : 'היי, אני מורין. הגעת למשאלה התקבלה. אני כאן כדי להסביר לך מה האתר עושה ואיך משתמשים בו.'
 ];
 
-const welcomeExplanation = [
+const welcomeExplanation = SITE_MODE==='adult' ? [
+  'כאן מתחילים מפנטזיה שהייתם רוצים להגשים, ומתארים אותה בדרך שלכם.',
+  'אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים חשובים להתאמה. המסלול הזה מופרד מהאתר הכללי ומיועד לבני 18 ומעלה בלבד.',
+  'אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם, והאתר ממשיך איתכם דרך התאמות, חיבור בין המשתתפים ושלבי הביצוע.'
+] : [
   'משאלה התקבלה הוא מקום שבו מתחילים ממשהו שהייתם רוצים שיקרה: עזרה, מחווה, יצירה, חוויה, הפתעה, שותף לרעיון או משהו אחר שאתם רוצים להגשים.',
-  'יש באתר שני מסלולים נפרדים: משאלות כלליות, ופנטזיות למבוגרים. לכן מי שבא בשביל רעיון לא מיני לא צריך לעבור דרך תוכן אינטימי בכלל.',
+  'זה האתר הכללי בלבד. פנטזיות ותוכן מיני נמצאים במוצר נפרד ואינם מופיעים כאן.',
   'מספרים לי מה רוצים. אני עוזרת להבין מי אמור להשתתף, מה חסר ואילו פרטים באמת חשובים להתאמה. אחר כך נוצרת טיוטה שאפשר לבדוק ולפרסם, והאתר ממשיך איתכם דרך ההתאמות ועד לביצוע.'
 ];
 
-const WELCOME_SEEN_KEY='faWelcomeExplainedV4';
+const WELCOME_SEEN_KEY=SITE_MODE==='adult'?'faAdultWelcomeExplainedV1':'faGeneralWelcomeExplainedV1';
 let welcomeVoiceMode=localStorage.getItem('faPreferredVoice')==='male'?'male':'female';
 let welcomeVoices=[];
 let welcomeAutoReplayArmed=false;
@@ -145,7 +151,9 @@ $('#welcomeMaleVoice').onclick=()=>continueWelcomeAfterVoiceChoice('male');
 $('#welcomeHowBtn').onclick=()=>{
   $('#welcomeHowStep').classList.remove('hidden');
   $('#welcomeHowBtn').disabled=true;
-  const text='דוגמה: אפשר לומר “אני רוצה שמישהו יבוא לגרושה שלי וישיר לה שיר”. זו משאלה כללית. אני אבין שהיוזם הוא מארגן בלבד, שהאדם החסר הוא מבצע או מבצעת, ואשאל רק שאלות שבאמת משפיעות על ההתאמה. אם מדובר בפנטזיה אינטימית, היא עוברת למסלול המבוגרים הנפרד.';
+  const text=SITE_MODE==='adult'
+    ? 'דוגמה: אפשר לתאר פנטזיה במילים שלכם. אני אזהה מי חסר כדי להגשים אותה, אשאל רק שאלות שמשפיעות על ההתאמה, ואבנה טיוטה שתמיד אפשר לבדוק לפני הפרסום.'
+    : 'דוגמה: אפשר לומר “אני רוצה שמישהו יבוא לגרושה שלי וישיר לה שיר”. אני אבין שהיוזם הוא מארגן בלבד, שהאדם החסר הוא מבצע או מבצעת, ואשאל רק שאלות שבאמת משפיעות על ההתאמה.';
   appendWelcomeTranscript(text);
   speakWelcome(text);
 };
@@ -229,9 +237,16 @@ document.addEventListener('pointerdown',()=>{
   speakWelcomeSequence();
 },{capture:true});
 
-setTimeout(()=>{
-  if(!state.token && !localStorage.getItem(WELCOME_SEEN_KEY)){
+function maybeOpenWelcome(){
+  if(SITE_MODE==='adult' && !document.body.classList.contains('adult-age-confirmed'))return;
+  if(!state.token && !localStorage.getItem(WELCOME_SEEN_KEY) && !$('#welcomeMorinModal').classList.contains('open')){
     resetWelcome({auto:true});
     openModal('welcomeMorinModal');
   }
-},120);
+}
+
+document.addEventListener('fa:adult-gate-accepted',()=>{
+  setTimeout(maybeOpenWelcome,80);
+});
+
+setTimeout(maybeOpenWelcome,120);

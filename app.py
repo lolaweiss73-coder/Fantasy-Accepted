@@ -47,7 +47,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.4.0")
+app = FastAPI(title="Fantasy Accepted", version="0.4.1")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -392,14 +392,13 @@ def init_db() -> None:
     for identity_row in missing_account_ids:
         while True:
             candidate = new_account_id()
-            try:
-                con.execute(
-                    "UPDATE identities SET account_id=? WHERE id=?",
-                    (candidate, identity_row["id"]),
-                )
-                break
-            except INTEGRITY_ERRORS:
+            if con.execute("SELECT 1 FROM identities WHERE account_id=?", (candidate,)).fetchone():
                 continue
+            con.execute(
+                "UPDATE identities SET account_id=? WHERE id=?",
+                (candidate, identity_row["id"]),
+            )
+            break
     try:
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_account_id ON identities(account_id)")
     except Exception:
@@ -1156,7 +1155,7 @@ def health():
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.4.0",
+        "version": "0.4.1",
         "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,

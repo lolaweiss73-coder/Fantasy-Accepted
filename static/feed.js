@@ -33,7 +33,7 @@ function renderFeed(){
     card.innerHTML=`
       <div class="eyebrow">${escapeHtml(labels.kind[f.kind]||f.kind)} · ${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
       <div class="row-top"><h3>${escapeHtml(f.title)}</h3><span class="workflow-pill ${escapeHtml(f.workflow?.status||f.status)}">${escapeHtml(workflowLabel(f))}</span></div>
-      <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
+      <div class="meta-row"><span>${escapeHtml(identityLabel(f.owner))}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
       ${f.photos?.length?'<div class="wish-card-photo"></div>':''}
       <p class="fantasy-desc">${escapeHtml(f.description)}</p>
       <div class="tag-row">${f.tags.map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
@@ -92,7 +92,7 @@ async function openFantasy(id){
         <span>·</span>
         <span>${f.workflow?.roles_filled?'כל התפקידים התמלאו':'עדיין מחפשים אנשים'}</span>
       </div>
-      <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
+      <div class="meta-row"><span>${escapeHtml(identityLabel(f.owner))}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
       <div id="ownerProfilePhotos" class="photo-grid profile-public-grid"></div>
       <p class="detail-description">${escapeHtml(f.description)}</p>
       <div id="detailPhotoGallery" class="photo-grid wish-detail-photos"></div>
@@ -101,7 +101,7 @@ async function openFantasy(id){
       ${f.owner_participates?`<div class="role-detail"><h4>יוזם/ת ה${noun}</h4><div class="muted">כבר בפנים — לא נדרשת מועמדות.</div></div>`:''}
       <div id="detailRoles"></div>
       <div class="workflow-actions">${workflowActionsHtml(f,mine)}</div>
-      <div class="card-actions">${!mine?`<button id="messageOwner" class="ghost">שיחה פרטית עם ${escapeHtml(f.owner.nickname)}</button>`:''}<button id="reportFantasy" class="ghost">דיווח</button></div>`;
+      <div class="card-actions">${!mine?`<button id="messageOwner" class="ghost">שיחה פרטית עם ${escapeHtml(identityLabel(f.owner))}</button>`:''}<button id="reportFantasy" class="ghost">דיווח</button></div>`;
 
 
     const detailGallery=$('#detailPhotoGallery');
@@ -182,7 +182,7 @@ async function openFantasy(id){
     const cancel=$('#cancelWishBtn');
     if(cancel)cancel.onclick=()=>updateWishStage(f.id,'cancelled');
     const message=$('#messageOwner');
-    if(message)message.onclick=()=>{closeModal('fantasyModal');openConversation(f.owner.id,f.owner.nickname)};
+    if(message)message.onclick=()=>{closeModal('fantasyModal');openConversation(f.owner.id,identityLabel(f.owner))};
     $('#reportFantasy').onclick=()=>reportFantasy(f.id);
     openModal('fantasyModal');
   }catch(err){toast(err.message)}
@@ -226,7 +226,7 @@ async function openApplications(fantasyId){
       const el=document.createElement('div');
       el.className='application-row';
       const completed=Number(a.completion_stats?.fulfilled_total||0);
-      el.innerHTML=`<div class="row-top"><strong>${escapeHtml(a.nickname)} · ${a.age}</strong><span class="status-pill">${escapeHtml(labels.status[a.status]||a.status)}</span></div><div class="muted">${escapeHtml(labels.gender[a.gender]||a.gender)}${a.region?` · ${escapeHtml(a.region)}`:''} · תפקיד: ${escapeHtml(a.role_name)}</div><div class="activity-fact">${completed} משאלות הוגשמו ואושרו בהשתתפות/יוזמת המשתמש הזה</div><p>${escapeHtml(a.message||'ללא הודעה')}</p><div class="card-actions"><button class="ghost shortlist">רשימה</button><button class="primary accept">קבלה</button><button class="ghost reject">דחייה</button><button class="ghost chat">שיחה פרטית</button></div>`;
+      el.innerHTML=`<div class="row-top"><strong>${escapeHtml(a.nickname)}${a.account_id?` · #${escapeHtml(a.account_id.slice(-6))}`:''} · ${a.age}</strong><span class="status-pill">${escapeHtml(labels.status[a.status]||a.status)}</span></div><div class="muted">${escapeHtml(labels.gender[a.gender]||a.gender)}${a.region?` · ${escapeHtml(a.region)}`:''} · תפקיד: ${escapeHtml(a.role_name)}</div><div class="activity-fact">${completed} משאלות הוגשמו ואושרו בהשתתפות/יוזמת המשתמש הזה</div><p>${escapeHtml(a.message||'ללא הודעה')}</p><div class="card-actions"><button class="ghost shortlist">רשימה</button><button class="primary accept">קבלה</button><button class="ghost reject">דחייה</button><button class="ghost chat">שיחה פרטית</button></div>`;
       el.querySelector('.shortlist').onclick=()=>setApplicationStatus(a.id,'shortlisted',fantasyId);
       el.querySelector('.accept').onclick=()=>setApplicationStatus(a.id,'accepted',fantasyId);
       el.querySelector('.reject').onclick=()=>setApplicationStatus(a.id,'rejected',fantasyId);

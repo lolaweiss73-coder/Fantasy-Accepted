@@ -6,8 +6,8 @@ function renderInbox(){
   if(!state.inbox.length)root.innerHTML='<div class="empty">אין עדיין שיחות.</div>';
   for(const item of state.inbox){
     const el=document.createElement('div');el.className='inbox-person'+(state.activeConversation?.id===item.identity.id?' active':'');
-    el.innerHTML=`<strong>${escapeHtml(item.identity.nickname)}</strong><div class="muted">${item.unread?`${item.unread} חדשות · `:''}${formatDate(item.last_ts)}</div>`;
-    el.onclick=()=>openConversation(item.identity.id,item.identity.nickname);root.append(el);
+    el.innerHTML=`<strong>${escapeHtml(identityLabel(item.identity))}</strong><div class="muted">${item.unread?`${item.unread} חדשות · `:''}${formatDate(item.last_ts)}</div>`;
+    el.onclick=()=>openConversation(item.identity.id,identityLabel(item.identity));root.append(el);
   }
 }
 async function openConversation(id,nickname='שיחה פרטית'){

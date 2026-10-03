@@ -13,7 +13,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: PYTHONPATH=. pytest -q
+      - run: node --check static/i18n.js
       - run: node --check static/core.js
+      - run: node --check static/media.js
       - run: node --check static/feed.js
       - run: node --check static/create.js
       - run: node --check static/inbox.js

@@ -2180,6 +2180,17 @@ WELCOME_AUDIO = {
         "So, what do you wish for?",
     ],
 }
+WELCOME_EXTRA_AUDIO = {
+    "how_general": "For example, you can say: I want someone to sing a song to my ex. I can understand that you are organizing the wish, identify the performer as the missing person, and ask only the questions that actually affect the match.",
+    "how_adult": "For example, tell me the fantasy in your own words. I can identify the people or roles that are missing, ask only the questions that affect the match, and prepare a draft for you to review before anything is published.",
+    "avi_prompt": "Avi may have left a personal message for you. What are the initials of your name?",
+    "annette_confirm": "Just to make sure, are you Annette Smirnoff?",
+    "no_personal_message": "I did not find a personal message for those initials, but the explanation of the site is open to everyone.",
+    "annette_message_1": "Annette, Avi asked me to tell you something personal. Behind the unusual choices you see here is a long-term entrepreneurial vision, not just another website.",
+    "annette_message_2": "He is working on several ideas that he believes could change entire fields, including scent technology for movies and virtual reality, and the E L project for products designed to last an extremely long time.",
+    "annette_message_3": "He also thinks a lot about the economic impact of artificial intelligence and ways to reduce the cost of living and give people more security and meaning. He asked me to tell you that his ambitions are much bigger than his current situation, and that is exactly the gap he intends to close.",
+    "annette_no": "Then the personal message probably was not meant for you. At least now I know not to identify people from two letters.",
+}
 _TTS_CACHE: dict[str, bytes] = {}
 
 
@@ -2219,6 +2230,22 @@ async def morin_welcome_audio(segment_index: int):
     if segment_index < 0 or segment_index >= len(lines):
         raise HTTPException(404, "Voice segment not found")
     audio = await gateway_speech(lines[segment_index])
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/api/morin/welcome-extra-audio/{audio_key}")
+async def morin_welcome_extra_audio(audio_key: str):
+    text = WELCOME_EXTRA_AUDIO.get(audio_key)
+    if not text:
+        raise HTTPException(404, "Voice segment not found")
+    audio = await gateway_speech(text)
     return Response(
         content=audio,
         media_type="audio/mpeg",

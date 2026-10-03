@@ -9,7 +9,7 @@ The product now has two hard-separated public experiences over the same backend 
 
 This repository is a fresh implementation. It deliberately uses the same lightweight deployment style as `NoLimit-Chat` (FastAPI + SQLite + static frontend) so the two services can share infrastructure patterns while remaining separate products.
 
-## Current baseline — v0.3.0
+## Current baseline — v0.4.0
 
 Working flows:
 
@@ -26,6 +26,10 @@ Working flows:
 - Optional Morin draft-structuring endpoint through OpenRouter. The original user text and structured draft are kept separately; nothing is published by the AI automatically.
 - Adult-only publishing guard applied server-side to both manual and Morin-assisted drafts.
 - Mobile-first RTL interface.
+- English-only Morin spoken narration with localized synchronized subtitles; users can speak or write in their own language.
+- Preferred display language stored per profile, with browser-language fallback.
+- Wish/fantasy photos (up to 8), normalized and stripped of EXIF metadata before storage.
+- Profile photo gallery with per-photo public/private visibility, isolated between the general and 18+ sites.
 
 ## Product boundaries
 
@@ -92,7 +96,6 @@ A `render.yaml` baseline is included. Before real users are admitted, configure 
 - Verification badges (age, identity, linked social account) as separate facts.
 - Match notifications when a missing role becomes satisfiable.
 - Voice capture → transcription → Morin structuring workflow.
-- Media policy and optional photo sharing.
 - Admin moderation queue and audit trail.
 - Mutual final acceptance state for a fantasy after participants are chosen.
 

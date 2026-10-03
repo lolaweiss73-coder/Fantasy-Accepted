@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import io
+import ipaddress
 import json
 import os
 from contextvars import ContextVar
@@ -47,7 +48,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.4.1")
+app = FastAPI(title="Fantasy Accepted", version="0.4.2")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -59,6 +60,8 @@ async def site_mode_middleware(request: Request, call_next):
     host_adult = host in ADULT_HOSTS
     mode = "adult" if path_adult or host_adult or SITE_MODE == "adult" else "general"
     api_base = "/adult" if path_adult and not host_adult and SITE_MODE != "adult" else ""
+    request.state.original_path = original_path
+    request.state.site_mode = mode
 
     if path_adult:
         rewritten = original_path[len("/adult"):] or "/"
@@ -72,6 +75,41 @@ async def site_mode_middleware(request: Request, call_next):
     finally:
         _site_mode_ctx.reset(mode_token)
         _api_base_ctx.reset(base_token)
+
+
+@app.middleware("http")
+async def security_audit_middleware(request: Request, call_next):
+    original_path = request.url.path
+    event_type = audit_event_for_request(request.method, original_path)
+    if not event_type:
+        return await call_next(request)
+
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        write_audit_log(
+            request,
+            event_type=event_type,
+            result="error",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        raise
+
+    if response.status_code < 400:
+        result = "success"
+    elif response.status_code in (401, 403):
+        result = "denied"
+    else:
+        result = "failed"
+    write_audit_log(
+        request,
+        event_type=event_type,
+        result=result,
+        status_code=response.status_code,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+    )
+    return response
 
 
 def now() -> float:
@@ -109,6 +147,183 @@ def recovery_hash(value: str) -> str:
 
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+AUDIT_RETENTION_DAYS = max(760, int(os.environ.get("AUDIT_RETENTION_DAYS", "760") or "760"))
+AUDIT_RETENTION_SECONDS = AUDIT_RETENTION_DAYS * 24 * 60 * 60
+_last_audit_prune = 0.0
+
+
+def client_ip(request: Request) -> str:
+    candidates: list[str] = []
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        candidates.extend(part.strip() for part in forwarded.split(",") if part.strip())
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        candidates.append(real_ip)
+    if request.client and request.client.host:
+        candidates.append(request.client.host)
+    for candidate in reversed(candidates):
+        value = candidate.split("%", 1)[0].strip()
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            continue
+    return ""
+
+
+def audit_event_for_request(method: str, path: str) -> str | None:
+    if path.startswith("/adult/"):
+        path = path[len("/adult"):]
+    method = method.upper()
+    exact = {
+        ("POST", "/api/session"): "account_register",
+        ("POST", "/api/session/recover"): "account_recover",
+        ("POST", "/api/me/recovery-key"): "recovery_key_rotate",
+        ("PUT", "/api/me/profile"): "profile_update",
+        ("POST", "/api/me/dnd"): "availability_status_change",
+        ("POST", "/api/photos"): "photo_upload",
+        ("POST", "/api/reports"): "report_create",
+        ("GET", "/api/admin/audit-logs"): "audit_log_read",
+    }
+    if (method, path) in exact:
+        return exact[(method, path)]
+    if re.fullmatch(r"/api/me/photos/[^/]+", path):
+        if method == "PUT":
+            return "photo_visibility_update"
+        if method == "DELETE":
+            return "photo_delete"
+    if re.fullmatch(r"/api/fantasies/[^/]+/photos/[^/]+", path) and method == "DELETE":
+        return "photo_delete"
+    if re.fullmatch(r"/api/blocks/[^/]+", path) and method == "POST":
+        return "user_block"
+    if path.startswith("/api/admin/") and method in {"POST", "PUT", "PATCH", "DELETE"}:
+        return "admin_write"
+    return None
+
+
+def audit_target_from_path(path: str) -> tuple[str | None, str | None]:
+    if path.startswith("/adult/"):
+        path = path[len("/adult"):]
+    patterns = [
+        (r"/api/admin/users/([^/]+)/suspension", "identity"),
+        (r"/api/admin/fantasies/([^/]+)/status", "fantasy"),
+        (r"/api/admin/reports/([^/]+)/status", "report"),
+        (r"/api/me/photos/([^/]+)", "photo"),
+        (r"/api/fantasies/[^/]+/photos/([^/]+)", "photo"),
+        (r"/api/blocks/([^/]+)", "identity"),
+    ]
+    for pattern, target_type in patterns:
+        match = re.fullmatch(pattern, path)
+        if match:
+            return target_type, match.group(1)
+    return None, None
+
+
+def audit_actor_from_request(request: Request) -> tuple[str | None, str | None, str | None]:
+    account_id = getattr(request.state, "audit_account_id", None)
+    identity_id = getattr(request.state, "audit_identity_id", None)
+    session_id = getattr(request.state, "audit_session_id", None)
+    if account_id or identity_id or session_id:
+        return account_id, identity_id, session_id
+
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Bearer "):
+        if request.url.path.startswith("/api/admin/") and request.headers.get("x-admin-key"):
+            return "ADMIN", None, None
+        return None, None, None
+
+    digest = token_hash(authorization.removeprefix("Bearer ").strip())
+    con = db()
+    session = con.execute(
+        """
+        SELECT s.id AS session_id, i.id AS identity_id, i.account_id
+        FROM account_sessions s
+        JOIN identities i ON i.id=s.identity_id
+        WHERE s.token_hash=? AND s.revoked_at IS NULL
+        """,
+        (digest,),
+    ).fetchone()
+    if session:
+        con.close()
+        return session["account_id"], session["identity_id"], session["session_id"]
+    identity = con.execute(
+        "SELECT id,account_id FROM identities WHERE token_hash=?",
+        (digest,),
+    ).fetchone()
+    con.close()
+    if identity:
+        return identity["account_id"], identity["id"], None
+    return None, None, None
+
+
+def prune_audit_logs(*, force: bool = False) -> None:
+    global _last_audit_prune
+    ts = now()
+    if not force and ts - _last_audit_prune < 6 * 60 * 60:
+        return
+    con = db()
+    con.execute("DELETE FROM security_audit_log WHERE retention_until<?", (ts,))
+    con.commit()
+    con.close()
+    _last_audit_prune = ts
+
+
+def write_audit_log(
+    request: Request,
+    *,
+    event_type: str,
+    result: str,
+    status_code: int | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    try:
+        prune_audit_logs()
+        account_id, identity_id, session_id = audit_actor_from_request(request)
+        path = getattr(request.state, "original_path", request.url.path)
+        target_type, target_id = audit_target_from_path(path)
+        target_type = getattr(request.state, "audit_target_type", target_type)
+        target_id = getattr(request.state, "audit_target_id", target_id)
+        metadata = {
+            "status_code": status_code,
+            "duration_ms": duration_ms,
+        }
+        metadata.update(getattr(request.state, "audit_metadata", {}) or {})
+        ts = now()
+        user_agent = request.headers.get("user-agent", "")
+        user_agent_hash = hashlib.sha256(user_agent.encode("utf-8")).hexdigest() if user_agent else ""
+        con = db()
+        con.execute(
+            """
+            INSERT INTO security_audit_log
+            (id,occurred_at,account_id,identity_id,session_id,event_type,result,site_mode,ip_address,user_agent_hash,path,method,target_type,target_id,metadata,retention_until)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                uid(),
+                ts,
+                account_id,
+                identity_id,
+                session_id,
+                event_type,
+                result,
+                getattr(request.state, "site_mode", current_site_mode()),
+                client_ip(request),
+                user_agent_hash,
+                path[:500],
+                request.method.upper(),
+                target_type,
+                target_id,
+                json_dump(metadata),
+                ts + AUDIT_RETENTION_SECONDS,
+            ),
+        )
+        con.commit()
+        con.close()
+    except Exception as exc:
+        # Audit logging must never take the application down.
+        print("Security audit log failure:", type(exc).__name__, str(exc)[:200])
 
 
 def json_dump(value: Any) -> str:
@@ -312,6 +527,25 @@ def init_db() -> None:
             revoked_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS security_audit_log (
+            id TEXT PRIMARY KEY,
+            occurred_at REAL NOT NULL,
+            account_id TEXT,
+            identity_id TEXT,
+            session_id TEXT,
+            event_type TEXT NOT NULL,
+            result TEXT NOT NULL,
+            site_mode TEXT NOT NULL,
+            ip_address TEXT NOT NULL DEFAULT '',
+            user_agent_hash TEXT NOT NULL DEFAULT '',
+            path TEXT NOT NULL,
+            method TEXT NOT NULL,
+            target_type TEXT,
+            target_id TEXT,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            retention_until REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS photos (
             id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -337,6 +571,9 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_id, purpose, site_mode, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_photos_fantasy ON photos(fantasy_id, created_at ASC);
         CREATE INDEX IF NOT EXISTS idx_account_sessions_identity ON account_sessions(identity_id, revoked_at, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_audit_time ON security_audit_log(occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_audit_account ON security_audit_log(account_id, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_audit_event ON security_audit_log(event_type, result, occurred_at DESC);
         """
     )
 
@@ -458,6 +695,7 @@ def init_db() -> None:
             ("announcement_list_migrated_v2", "1", marker_ts),
         )
 
+    con.execute("DELETE FROM security_audit_log WHERE retention_until<?", (now(),))
     con.commit()
     con.close()
 
@@ -1155,7 +1393,7 @@ def health():
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.4.1",
+        "version": "0.4.2",
         "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
@@ -1164,7 +1402,7 @@ def health():
 
 
 @app.post("/api/session")
-def create_session(info: SessionCreate):
+def create_session(info: SessionCreate, request: Request):
     if not info.adult_confirm:
         raise HTTPException(400, "יש לאשר שכל המשתתפים באתר הם בני 18 ומעלה")
     token = new_session_token()
@@ -1197,10 +1435,14 @@ def create_session(info: SessionCreate):
             ts,
         ),
     )
+    session_id = uid()
     con.execute(
         "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
-        (uid(), identity_id, token_hash(token), ts, ts),
+        (session_id, identity_id, token_hash(token), ts, ts),
     )
+    request.state.audit_account_id = account_id
+    request.state.audit_identity_id = identity_id
+    request.state.audit_session_id = session_id
     con.commit()
     row = con.execute("SELECT * FROM identities WHERE id=?", (identity_id,)).fetchone()
     con.close()
@@ -1213,8 +1455,9 @@ def create_session(info: SessionCreate):
 
 
 @app.post("/api/session/recover")
-def recover_session(info: SessionRecover):
+def recover_session(info: SessionRecover, request: Request):
     account_id = info.account_id.strip().upper()
+    request.state.audit_account_id = account_id
     provided_hash = recovery_hash(info.recovery_code)
     con = db()
     row = con.execute("SELECT * FROM identities WHERE UPPER(account_id)=?", (account_id,)).fetchone()
@@ -1224,10 +1467,13 @@ def recover_session(info: SessionRecover):
 
     token = new_session_token()
     ts = now()
+    session_id = uid()
     con.execute(
         "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
-        (uid(), row["id"], token_hash(token), ts, ts),
+        (session_id, row["id"], token_hash(token), ts, ts),
     )
+    request.state.audit_identity_id = row["id"]
+    request.state.audit_session_id = session_id
     con.commit()
     con.close()
     return {"token": token, "identity": identity_public(row), "recovered": True}
@@ -2128,6 +2374,49 @@ def block(identity_id: str, authorization: str | None = Header(default=None)):
     return {"ok": True}
 
 
+@app.get("/api/admin/audit-logs")
+def admin_audit_logs(
+    event_type: str = Query(default="", max_length=80),
+    result: str = Query(default="", pattern="^(|success|denied|failed|error)$"),
+    account_id: str = Query(default="", max_length=40),
+    limit: int = Query(default=100, ge=1, le=500),
+    x_admin_key: str | None = Header(default=None),
+):
+    require_admin(x_admin_key)
+    clauses: list[str] = []
+    params: list[Any] = []
+    if event_type:
+        clauses.append("event_type=?")
+        params.append(event_type)
+    if result:
+        clauses.append("result=?")
+        params.append(result)
+    if account_id:
+        clauses.append("account_id=?")
+        params.append(account_id.strip().upper())
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    con = db()
+    rows = con.execute(
+        f"""
+        SELECT id,occurred_at,account_id,identity_id,session_id,event_type,result,site_mode,
+               ip_address,user_agent_hash,path,method,target_type,target_id,metadata,retention_until
+        FROM security_audit_log
+        {where}
+        ORDER BY occurred_at DESC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    con.close()
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = json_load(item["metadata"], {})
+        out.append(item)
+    return out
+
+
 @app.get("/api/admin/overview")
 def admin_overview(x_admin_key: str | None = Header(default=None)):
     require_admin(x_admin_key)
@@ -2141,6 +2430,14 @@ def admin_overview(x_admin_key: str | None = Header(default=None)):
     fulfilled = con.execute("SELECT COUNT(*) AS n FROM fantasies WHERE status='fulfilled'").fetchone()["n"]
     pending_reports = con.execute("SELECT COUNT(*) AS n FROM reports WHERE status='pending'").fetchone()["n"]
     applications = con.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
+    audit_events_24h = con.execute(
+        "SELECT COUNT(*) AS n FROM security_audit_log WHERE occurred_at>=?",
+        (now() - 24 * 60 * 60,),
+    ).fetchone()["n"]
+    denied_events_24h = con.execute(
+        "SELECT COUNT(*) AS n FROM security_audit_log WHERE occurred_at>=? AND result='denied'",
+        (now() - 24 * 60 * 60,),
+    ).fetchone()["n"]
     con.close()
     return {
         "users": int(users),
@@ -2150,6 +2447,9 @@ def admin_overview(x_admin_key: str | None = Header(default=None)):
         "fulfilled_wishes": int(fulfilled),
         "pending_reports": int(pending_reports),
         "applications": int(applications),
+        "audit_events_24h": int(audit_events_24h),
+        "denied_events_24h": int(denied_events_24h),
+        "audit_retention_days": AUDIT_RETENTION_DAYS,
     }
 
 

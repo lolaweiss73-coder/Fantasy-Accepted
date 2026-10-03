@@ -57,7 +57,17 @@ function openRecoveryModal({accountId='',code='',configured=true}={}){
   if($('#recoveryAccountIdDisplay'))$('#recoveryAccountIdDisplay').value=accountId||state.me?.account_id||'';
   if($('#recoveryCodeDisplay'))$('#recoveryCodeDisplay').value=code||'';
   $('#recoveryCodeWrap')?.classList.toggle('hidden',!code);
-  $('#recoveryNotConfigured')?.classList.toggle('hidden',Boolean(code)||configured);
+  $('#recoveryNotConfigured')?.classList.toggle('hidden',Boolean(code));
+  if($('#recoveryGenerateText')){
+    $('#recoveryGenerateText').textContent=configured
+      ?(state.language==='he'?'מפתח קיים לא ניתן להצגה מחדש. אם הוא אבד, אפשר ליצור מפתח חדש; הישן יפסיק לעבוד.':'An existing recovery key cannot be shown again. If it was lost, create a new one; the old key will stop working.')
+      :(state.language==='he'?'לחשבון הזה עדיין אין מפתח שחזור. כדאי ליצור אחד עכשיו כדי שלא תהיה תלוי בדפדפן הנוכחי.':'This account does not have a recovery key yet. Create one now so this browser is not your only way back in.');
+  }
+  if($('#generateRecoveryCodeBtn')){
+    $('#generateRecoveryCodeBtn').textContent=configured
+      ?(state.language==='he'?'יצירת מפתח חדש':'Create a new recovery key')
+      :(state.language==='he'?'יצירת מפתח שחזור':'Create recovery key');
+  }
   if($('#accountRecoveryStatus'))$('#accountRecoveryStatus').textContent='';
   openModal('accountRecoveryModal');
 }

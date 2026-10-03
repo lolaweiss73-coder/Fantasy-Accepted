@@ -1,5 +1,6 @@
 function fillProfileForm(){
   if(!state.me)return;
+  if($('#profileAccountId'))$('#profileAccountId').textContent=state.me.account_id||'—';
   if($('#profileLanguage')){
     const raw=state.me.preferred_language||'auto';
     $('#profileLanguage').value=['auto','he','en'].includes(raw)?raw:'auto';
@@ -228,6 +229,10 @@ async function loadMyActivitySummary(){
   }catch{
     root.textContent='נתוני ההגשמות אינם זמינים כרגע.';
   }
+}
+
+if($('#profileRecoveryBtn')){
+  $('#profileRecoveryBtn').onclick=()=>loadRecoveryStatus({open:true});
 }
 
 $('#profileBtn').onclick=async()=>{

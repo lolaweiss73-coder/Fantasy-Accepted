@@ -1790,7 +1790,7 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
         raise HTTPException(403, "רק מפרסם/ת המשאלה או הפנטזיה יכול/ה לראות מועמדויות")
     rows = con.execute(
         """
-        SELECT a.*, i.nickname, i.age, i.gender, i.region, r.name AS role_name
+        SELECT a.*, i.nickname, i.account_id, i.age, i.gender, i.region, r.name AS role_name
         FROM applications a
         JOIN identities i ON i.id=a.applicant_id
         JOIN roles r ON r.id=a.role_id
@@ -2170,6 +2170,7 @@ def admin_users(
         item = {
             "id": row["id"],
             "nickname": row["nickname"],
+            "account_id": row["account_id"] if "account_id" in set(row.keys()) else "",
             "age": row["age"],
             "gender": row["gender"],
             "region": row["region"],

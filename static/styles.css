@@ -404,3 +404,39 @@ html[dir="ltr"] .announcement-set{direction:ltr}
   .copy-field{grid-template-columns:1fr}
   .copy-field button{width:100%}
 }
+
+
+/* --- privacy and security notice --- */
+.privacy-link,
+.privacy-sidebar-link{
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  text-decoration:underline;
+  text-underline-offset:3px;
+  cursor:pointer;
+}
+.privacy-link{
+  margin-top:8px;
+  padding:4px 0;
+  font-size:12px;
+}
+.privacy-sidebar-link{
+  width:100%;
+  padding:8px 10px;
+  text-align:inherit;
+  font-size:11px;
+}
+.privacy-card{
+  width:min(760px,100%);
+}
+.privacy-card h2{margin:6px 0 14px}
+.privacy-card h3{margin:20px 0 7px}
+.privacy-card p{line-height:1.7}
+.privacy-updated{
+  margin-top:24px;
+  font-size:12px;
+  color:var(--muted);
+}
+html[lang="he"] .privacy-en{display:none}
+html:not([lang="he"]) .privacy-he{display:none}

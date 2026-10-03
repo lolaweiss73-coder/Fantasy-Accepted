@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#120f1f">
   <title>משאלה התקבלה | Fantasy Accepted</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20261004-account1">
+  <link rel="stylesheet" href="/static/styles.css?v=20261004-privacy1">
 </head>
 <body data-site-mode="__SITE_MODE__" data-api-base="__API_BASE__">
   <div id="adultAgeGate" class="adult-age-gate" role="dialog" aria-modal="true" aria-labelledby="adultAgeTitle">
@@ -17,6 +17,7 @@
       <p class="adult-age-declaration">בלחיצה על הכפתור אני מצהיר/ה שמלאו לי 18 שנים, שאני רשאי/ת לצפות בתוכן למבוגרים במקום שבו אני נמצא/ת, ושאני בוחר/ת להיכנס מרצוני.</p>
       <button id="adultAgeAccept" class="primary large" type="button">אני בן/בת 18 ומעלה — כניסה</button>
       <p class="fineprint">אם טרם מלאו לך 18, אין להיכנס לאתר זה.</p>
+      <button class="privacy-notice-open privacy-link" type="button">פרטיות ואבטחת מידע</button>
     </div>
   </div>
 
@@ -51,6 +52,7 @@
       <button class="nav-btn" data-view="wishes">🪄 המשאלות שלי</button>
       <div class="sidebar-spacer"></div>
       <button id="morinOpen" class="morin-nav">◉ מורין</button>
+      <button class="privacy-notice-open privacy-sidebar-link" type="button">פרטיות ואבטחת מידע</button>
       <div class="ecosystem-note">חלק מאקוסיסטם No Limit</div>
     </aside>
 
@@ -264,6 +266,7 @@
       </details>
 
       <p id="gateFineprint" class="fineprint">בשלב ההשקה השירות הכללי מיועד לבני 18 ומעלה.</p>
+      <button class="privacy-notice-open privacy-link" type="button">פרטיות ואבטחת מידע / Privacy</button>
     </div>
   </div>
 
@@ -577,13 +580,56 @@
     </div>
   </div>
 
+  <div id="privacyNoticeModal" class="overlay">
+    <div class="modal-card privacy-card">
+      <button class="close-btn" data-close="privacyNoticeModal">×</button>
+
+      <section class="privacy-he">
+        <div class="eyebrow">PRIVACY & SECURITY</div>
+        <h2>פרטיות ואבטחת מידע</h2>
+        <p>Fantasy Accepted שומר מידע שהמשתמש מוסר לצורך הפעלת השירות, התאמות, תקשורת, אבטחה ומניעת שימוש לרעה. מידע זה עשוי לכלול כינוי, גיל, מגדר, אזור כללי, פרטי פרופיל, משאלות או פנטזיות, הודעות ותמונות שהמשתמש בוחר להעלות.</p>
+
+        <h3>לוגי אבטחה</h3>
+        <p>לצורכי אבטחת מידע, מניעת הונאה, טיפול בדיווחים וחקירת אירועים, נשמרים לוגים של פעולות אבטחתיות. הלוגים עשויים לכלול מזהה חשבון, מזהה משתמש, מזהה session, תאריך ושעה, סוג הפעולה, תוצאת הפעולה, מסלול האתר, כתובת IP וחתימה מוצפנת של פרטי הדפדפן.</p>
+        <p><strong>כתובת IP אינה משמשת כמזהה החשבון.</strong> היא נשמרת כמידע אבטחתי בלבד. לוגי האבטחה נשמרים כברירת מחדל למשך 760 יום ואז נמחקים אוטומטית, אלא אם נדרש לשמור מידע מסוים לתקופה נוספת עקב אירוע אבטחה, מחלוקת או חובה חוקית.</p>
+
+        <h3>מידע רגיש ותוכן 18+</h3>
+        <p>במסלול למבוגרים המשתמשים עשויים למסור מידע אינטימי או רגיש. גישה לתמונות פרטיות מוגבלת בהתאם להגדרות המשתמש, ותמונות שמועלות עוברות קידוד מחדש והסרת EXIF לפני השמירה.</p>
+
+        <h3>שימוש בבינה מלאכותית</h3>
+        <p>תוכן שמועבר למורין עשוי להישלח לספקי בינה מלאכותית הדרושים להפעלת יכולות השיחה, הקול והתמלול. המערכת אינה מציגה מפתחות גישה או מפתחות שחזור למשתמשים אחרים.</p>
+
+        <p class="privacy-updated">עודכן: 4 באוקטובר 2026</p>
+      </section>
+
+      <section class="privacy-en">
+        <div class="eyebrow">PRIVACY & SECURITY</div>
+        <h2>Privacy and security notice</h2>
+        <p>Fantasy Accepted stores information users provide in order to operate the service, perform matching, enable communication, protect the platform and prevent abuse. This may include a nickname, age, gender, general area, profile details, wishes or fantasies, messages and photos a user chooses to upload.</p>
+
+        <h3>Security logs</h3>
+        <p>For security, fraud prevention, report handling and incident investigation, the service records security-relevant events. These logs may include account ID, user ID, session ID, date and time, action type, result, site area, IP address and a hashed browser fingerprint.</p>
+        <p><strong>An IP address is not used as the account identity.</strong> It is retained as security metadata only. Security audit logs are retained by default for 760 days and then automatically deleted, unless particular records need to be preserved longer because of a security incident, dispute or legal obligation.</p>
+
+        <h3>Sensitive and 18+ information</h3>
+        <p>In the adult area, users may provide intimate or sensitive information. Access to private photos is restricted according to the user's settings, and uploaded images are re-encoded with EXIF metadata removed before storage.</p>
+
+        <h3>AI processing</h3>
+        <p>Content sent to Morin may be transmitted to AI service providers required to operate conversation, voice and transcription features. Access credentials and recovery keys are not displayed to other users.</p>
+
+        <p class="privacy-updated">Updated: October 4, 2026</p>
+      </section>
+    </div>
+  </div>
+
+
   <div id="morinSubtitles" class="morin-subtitles hidden" aria-live="polite" aria-atomic="true">
     <div class="morin-subtitle-speaker">MORIN</div>
     <div id="morinSubtitleText" class="morin-subtitle-text"></div>
   </div>
   <div id="toast" class="toast"></div>
   <script src="/static/i18n.js?v=20261003-language1" defer></script>
-  <script src="/static/core.js?v=20261004-account1" defer></script>
+  <script src="/static/core.js?v=20261004-privacy1" defer></script>
   <script src="/static/media.js?v=20261003-media1" defer></script>
   <script src="/static/admin.js?v=20260929-admin4" defer></script>
   <script src="/static/onboarding.js?v=20261003-voice1" defer></script>

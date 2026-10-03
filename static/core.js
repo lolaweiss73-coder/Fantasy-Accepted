@@ -342,3 +342,18 @@ $('#dndBtn').onclick=async()=>{
 if($('#nameStoryBtn')){
   $('#nameStoryBtn').onclick=()=>openModal('nameStoryModal');
 }
+
+
+$$('.privacy-notice-open').forEach(button=>{
+  button.addEventListener('click',()=>openModal('privacyNoticeModal'));
+});
+$$('[data-close]').forEach(button=>{
+  const id=button.dataset.close;
+  if(!id)return;
+  button.addEventListener('click',()=>closeModal(id));
+});
+$$('.overlay').forEach(overlay=>{
+  overlay.addEventListener('click',event=>{
+    if(event.target===overlay)closeModal(overlay.id);
+  });
+});

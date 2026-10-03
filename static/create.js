@@ -31,6 +31,12 @@ function collectRoles(){
 $('#addRoleBtn').onclick=()=>addRole();
 addRole();
 
+if($('#fantasyPhotos')){
+  $('#fantasyPhotos').addEventListener('change',()=>{
+    FA_MEDIA.previewFiles($('#fantasyPhotos').files,$('#fantasyPhotoPreview'));
+  });
+}
+
 $('#fantasyForm').onsubmit=async(e)=>{
   e.preventDefault(); $('#createStatus').textContent='מפרסמת…';
   const payload={
@@ -42,9 +48,28 @@ $('#fantasyForm').onsubmit=async(e)=>{
   };
   if(payload.roles.some(r=>!r.name)){ $('#createStatus').textContent='צריך שם לכל תפקיד'; return; }
   try{
-    await api('/api/fantasies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const created=await api('/api/fantasies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const noun=payload.kind==='general'?'המשאלה':'הפנטזיה';
-    $('#createStatus').textContent='פורסם'; toast(noun+' פורסמה'); e.target.reset(); $('#rolesEditor').replaceChildren();state.roleCount=0;addRole();resetMorinVoiceState({clearText:true});showView('feed');
+    const files=[...($('#fantasyPhotos')?.files||[])];
+    if(files.length){
+      $('#createStatus').textContent='הפרסום נשמר. מעלה תמונות…';
+      try{
+        await FA_MEDIA.uploadFiles(files,{purpose:'fantasy',fantasyId:created.id,visibility:'public'});
+      }catch(photoErr){
+        $('#createStatus').textContent='הפרסום נשמר, אבל לפחות תמונה אחת לא עלתה: '+photoErr.message;
+        toast('הפרסום נשמר; הייתה בעיה בהעלאת תמונה');
+        return;
+      }
+    }
+    $('#createStatus').textContent='פורסם';
+    toast(noun+' פורסמה');
+    e.target.reset();
+    $('#fantasyPhotoPreview')?.replaceChildren();
+    $('#rolesEditor').replaceChildren();
+    state.roleCount=0;
+    addRole();
+    resetMorinVoiceState({clearText:true});
+    showView('feed');
   }catch(err){$('#createStatus').textContent=err.message}
 };
 
@@ -100,6 +125,8 @@ function resetFantasyComposer(){
   $('#fantasyKind').value=state.track;
   $('#morinReviewNote').textContent='';
   $('#morinReviewNote').classList.add('hidden');
+  if($('#fantasyPhotos'))$('#fantasyPhotos').value='';
+  $('#fantasyPhotoPreview')?.replaceChildren();
   $('#rolesEditor').replaceChildren();
   state.roleCount=0;
   addRole();
@@ -201,7 +228,10 @@ function setSpeechVisual(live,message){
 
 function makeRecognition(){
   const r=new SpeechRecognitionAPI();
-  r.lang='he-IL';
+  const speechLanguage=state.me?.preferred_language && state.me.preferred_language!=='auto'
+    ? state.me.preferred_language
+    : (navigator.language||'en-US');
+  r.lang=speechLanguage;
   r.continuous=true;
   r.interimResults=true;
   r.maxAlternatives=1;

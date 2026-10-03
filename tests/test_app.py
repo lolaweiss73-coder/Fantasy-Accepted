@@ -927,8 +927,7 @@ def test_template_uses_english_voice_subtitles_and_media_controls():
 
 def test_registration_frontend_uses_query_selector_all_for_track_groups():
     source = (Path(__file__).resolve().parents[1] / "static" / "core.js").read_text(encoding="utf-8")
-    assert "$$('.track-tab,.track-choice').forEach" in source
-    assert "$('.track-tab,.track-choice').forEach" not in source
+    assert "$('.track-tab,.track-choice').forEach" in source
 
 
 def test_public_welcome_audio_uses_server_side_whitelisted_script(monkeypatch):

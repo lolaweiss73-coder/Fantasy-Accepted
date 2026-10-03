@@ -923,3 +923,50 @@ def test_template_uses_english_voice_subtitles_and_media_controls():
     assert 'id="profileLanguage"' in html
     assert 'id="welcomeFemaleVoice"' not in html
     assert 'id="welcomeMaleVoice"' not in html
+
+
+def test_registration_frontend_uses_query_selector_all_for_track_groups():
+    source = (Path(__file__).resolve().parents[1] / "static" / "core.js").read_text(encoding="utf-8")
+    assert "$$('.track-tab,.track-choice').forEach" in source
+    assert "$('.track-tab,.track-choice').forEach" not in source
+
+
+def test_public_welcome_audio_uses_server_side_whitelisted_script(monkeypatch):
+    app_module.SITE_MODE = "general"
+
+    async def fake_gateway_speech(text: str) -> bytes:
+        assert text == app_module.WELCOME_AUDIO["general"][0]
+        return b"fake-mp3"
+
+    monkeypatch.setattr(app_module, "gateway_speech", fake_gateway_speech)
+    response = client.get("/api/morin/welcome-audio/0")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.content == b"fake-mp3"
+
+    missing = client.get("/api/morin/welcome-audio/999")
+    assert missing.status_code == 404
+
+
+def test_arbitrary_morin_speech_requires_login(monkeypatch):
+    app_module.SITE_MODE = "general"
+
+    async def fake_gateway_speech(text: str) -> bytes:
+        return b"fake-mp3"
+
+    monkeypatch.setattr(app_module, "gateway_speech", fake_gateway_speech)
+
+    blocked = client.post("/api/morin/speak", json={"text": "Hello"})
+    assert blocked.status_code == 401
+
+    _, headers = join("voice-user", 35, "female")
+    allowed = client.post("/api/morin/speak", headers=headers, json={"text": "Hello"})
+    assert allowed.status_code == 200
+    assert allowed.content == b"fake-mp3"
+
+
+def test_onboarding_no_longer_uses_browser_speech_synthesis():
+    source = (Path(__file__).resolve().parents[1] / "static" / "onboarding.js").read_text(encoding="utf-8")
+    assert "speechSynthesis" not in source
+    assert "/api/morin/welcome-audio/" in source
+    assert "new Audio(" in source

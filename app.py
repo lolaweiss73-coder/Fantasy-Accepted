@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import io
 import json
 import os
 from contextvars import ContextVar
@@ -14,9 +17,10 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from PIL import Image, ImageOps, UnidentifiedImageError
 from storage import DATA_DIR, INTEGRITY_ERRORS, backend_name, db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -43,7 +47,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.3.1")
+app = FastAPI(title="Fantasy Accepted", version="0.4.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -140,6 +144,7 @@ def init_db() -> None:
             bio TEXT NOT NULL DEFAULT '',
             adult_discovery INTEGER NOT NULL DEFAULT 0,
             suspended INTEGER NOT NULL DEFAULT 0,
+            preferred_language TEXT NOT NULL DEFAULT 'auto',
             created_at REAL NOT NULL
         );
 
@@ -270,6 +275,20 @@ def init_db() -> None:
             PRIMARY KEY(fantasy_id, identity_id)
         );
 
+        CREATE TABLE IF NOT EXISTS photos (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            fantasy_id TEXT REFERENCES fantasies(id) ON DELETE CASCADE,
+            purpose TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public',
+            site_mode TEXT NOT NULL DEFAULT 'general',
+            mime_type TEXT NOT NULL,
+            data_base64 TEXT NOT NULL,
+            width INTEGER NOT NULL DEFAULT 0,
+            height INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_fantasies_created ON fantasies(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_roles_fantasy ON roles(fantasy_id);
         CREATE INDEX IF NOT EXISTS idx_applications_fantasy ON applications(fantasy_id, created_at DESC);
@@ -278,6 +297,8 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_match_fantasy ON match_suggestions(fantasy_id, score DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, read_at, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_fulfillment_fantasy ON fulfillment_confirmations(fantasy_id, confirmed_at);
+        CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_id, purpose, site_mode, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_photos_fantasy ON photos(fantasy_id, created_at ASC);
         """
     )
 
@@ -308,6 +329,7 @@ def init_db() -> None:
         ("bio", "TEXT NOT NULL DEFAULT ''"),
         ("adult_discovery", "INTEGER NOT NULL DEFAULT 0"),
         ("suspended", "INTEGER NOT NULL DEFAULT 0"),
+        ("preferred_language", "TEXT NOT NULL DEFAULT 'auto'"),
     ]
     for column_name, column_sql in identity_columns:
         if getattr(con, "postgres", False):
@@ -388,6 +410,7 @@ class SessionCreate(BaseModel):
     region: str = Field(default="", max_length=80)
     marital_status: str = Field(default="prefer_not_to_say", max_length=40)
     relationship_status: str = Field(default="prefer_not_to_say", max_length=40)
+    preferred_language: str = Field(default="auto", min_length=2, max_length=16)
     adult_confirm: bool
 
 
@@ -400,6 +423,18 @@ class ProfileUpdate(BaseModel):
     travel_radius_km: int = Field(default=0, ge=0, le=500)
     bio: str = Field(default="", max_length=1200)
     adult_discovery: bool = False
+    preferred_language: str = Field(default="auto", min_length=2, max_length=16)
+
+
+class PhotoUpload(BaseModel):
+    purpose: str = Field(pattern="^(profile|fantasy)$")
+    data_url: str = Field(min_length=100, max_length=14_000_000)
+    visibility: str = Field(default="public", pattern="^(public|private)$")
+    fantasy_id: str | None = None
+
+
+class PhotoVisibilityUpdate(BaseModel):
+    visibility: str = Field(pattern="^(public|private)$")
 
 
 class RoleInput(BaseModel):
@@ -497,6 +532,89 @@ def current_identity(authorization: str | None) -> sqlite3.Row:
     return row
 
 
+MAX_PHOTO_SOURCE_BYTES = 10_000_000
+MAX_PHOTO_STORED_BYTES = 2_500_000
+MAX_PHOTO_DIMENSION = 1800
+MAX_PROFILE_PHOTOS = 8
+MAX_FANTASY_PHOTOS = 8
+
+
+def photo_metadata(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "purpose": row["purpose"],
+        "visibility": row["visibility"],
+        "site_mode": row["site_mode"],
+        "mime_type": row["mime_type"],
+        "width": int(row["width"] or 0),
+        "height": int(row["height"] or 0),
+        "created_at": row["created_at"],
+        "url": f"{current_api_base()}/api/photos/{row['id']}",
+    }
+
+
+def normalize_photo_data_url(data_url: str) -> tuple[str, str, int, int]:
+    match = re.match(r"^data:image/(?:jpeg|jpg|png|webp);base64,(.+)$", data_url, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        raise HTTPException(422, "Supported image formats are JPEG, PNG and WebP")
+    try:
+        raw = base64.b64decode(match.group(1), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "The image data is not valid")
+    if len(raw) > MAX_PHOTO_SOURCE_BYTES:
+        raise HTTPException(413, "The image is too large")
+
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(422, "The uploaded file is not a valid image")
+
+    if image.width * image.height > 50_000_000:
+        raise HTTPException(413, "The image dimensions are too large")
+
+    image = ImageOps.exif_transpose(image)
+    if image.mode not in ("RGB", "L"):
+        canvas = Image.new("RGB", image.size, "white")
+        if "A" in image.getbands():
+            canvas.paste(image, mask=image.getchannel("A"))
+        else:
+            canvas.paste(image.convert("RGB"))
+        image = canvas
+    elif image.mode != "RGB":
+        image = image.convert("RGB")
+
+    image.thumbnail((MAX_PHOTO_DIMENSION, MAX_PHOTO_DIMENSION))
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=84, optimize=True)
+    normalized = output.getvalue()
+    if len(normalized) > MAX_PHOTO_STORED_BYTES:
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=70, optimize=True)
+        normalized = output.getvalue()
+    if len(normalized) > MAX_PHOTO_STORED_BYTES:
+        raise HTTPException(413, "The image is still too large after compression")
+
+    return base64.b64encode(normalized).decode("ascii"), "image/jpeg", image.width, image.height
+
+
+def can_view_photo(con: sqlite3.Connection, photo: sqlite3.Row, viewer: sqlite3.Row) -> bool:
+    if photo["site_mode"] != current_site_mode():
+        return False
+    if photo["owner_id"] == viewer["id"]:
+        return True
+    if photo["purpose"] == "profile":
+        return photo["visibility"] == "public"
+    if photo["purpose"] == "fantasy" and photo["fantasy_id"]:
+        fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (photo["fantasy_id"],)).fetchone()
+        if not fantasy or fantasy["kind"] != current_site_mode() or fantasy["status"] == "hidden":
+            return False
+        if fantasy["visibility"] != "public":
+            return False
+        return not blocked_between(con, viewer["id"], fantasy["owner_id"])
+    return False
+
+
 def identity_public(row: sqlite3.Row) -> dict[str, Any]:
     keys = set(row.keys())
     return {
@@ -513,6 +631,7 @@ def identity_public(row: sqlite3.Row) -> dict[str, Any]:
         "travel_radius_km": row["travel_radius_km"] if "travel_radius_km" in keys else 0,
         "bio": row["bio"] if "bio" in keys else "",
         "adult_discovery": bool(row["adult_discovery"]) if "adult_discovery" in keys else False,
+        "preferred_language": row["preferred_language"] if "preferred_language" in keys else "auto",
     }
 
 
@@ -789,6 +908,10 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
         if viewer:
             item["eligible"], item["ineligible_reasons"] = role_eligible(role, viewer)
         role_items.append(item)
+    photos = con.execute(
+        "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE fantasy_id=? AND purpose='fantasy' ORDER BY created_at ASC",
+        (row["id"],),
+    ).fetchall()
     return {
         "id": row["id"],
         "owner": identity_public(owner),
@@ -802,6 +925,7 @@ def fantasy_payload(con: sqlite3.Connection, row: sqlite3.Row, viewer: sqlite3.R
         "status": row["status"],
         "owner_participates": bool(row["owner_participates"]),
         "kind": row["kind"],
+        "photos": [photo_metadata(photo) for photo in photos],
         "roles": role_items,
         "workflow": workflow_payload(con, row, viewer),
         "created_at": row["created_at"],
@@ -944,7 +1068,7 @@ def health():
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.3.1",
+        "version": "0.4.0",
         "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
@@ -960,7 +1084,7 @@ def create_session(info: SessionCreate):
     identity_id = uid()
     con = db()
     con.execute(
-        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             identity_id,
             token_hash(token),
@@ -970,6 +1094,7 @@ def create_session(info: SessionCreate):
             info.region.strip(),
             info.marital_status,
             info.relationship_status,
+            info.preferred_language.strip().lower(),
             now(),
         ),
     )
@@ -1018,7 +1143,7 @@ def update_profile(info: ProfileUpdate, authorization: str | None = Header(defau
             clean_skills.append(value)
     con = db()
     con.execute(
-        "UPDATE identities SET region=?,marital_status=?,relationship_status=?,skills=?,availability=?,travel_radius_km=?,bio=?,adult_discovery=? WHERE id=?",
+        "UPDATE identities SET region=?,marital_status=?,relationship_status=?,skills=?,availability=?,travel_radius_km=?,bio=?,adult_discovery=?,preferred_language=? WHERE id=?",
         (
             info.region.strip(),
             info.marital_status,
@@ -1028,6 +1153,7 @@ def update_profile(info: ProfileUpdate, authorization: str | None = Header(defau
             info.travel_radius_km,
             info.bio.strip(),
             1 if info.adult_discovery else 0,
+            info.preferred_language.strip().lower(),
             person["id"],
         ),
     )
@@ -1036,6 +1162,189 @@ def update_profile(info: ProfileUpdate, authorization: str | None = Header(defau
     row = con.execute("SELECT * FROM identities WHERE id=?", (person["id"],)).fetchone()
     con.close()
     return identity_public(row)
+
+
+@app.post("/api/photos")
+def upload_photo(info: PhotoUpload, authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    encoded, mime_type, width, height = normalize_photo_data_url(info.data_url)
+    con = db()
+
+    fantasy_id = None
+    visibility = info.visibility
+    if info.purpose == "fantasy":
+        if not info.fantasy_id:
+            con.close()
+            raise HTTPException(422, "A wish or fantasy is required for this photo")
+        fantasy = con.execute("SELECT * FROM fantasies WHERE id=?", (info.fantasy_id,)).fetchone()
+        if not fantasy or fantasy["owner_id"] != person["id"] or fantasy["kind"] != current_site_mode():
+            con.close()
+            raise HTTPException(404, "The wish or fantasy was not found")
+        count = con.execute(
+            "SELECT COUNT(*) AS n FROM photos WHERE fantasy_id=? AND purpose='fantasy'",
+            (info.fantasy_id,),
+        ).fetchone()["n"]
+        if count >= MAX_FANTASY_PHOTOS:
+            con.close()
+            raise HTTPException(409, f"A wish can contain up to {MAX_FANTASY_PHOTOS} photos")
+        fantasy_id = info.fantasy_id
+        visibility = "public"
+    else:
+        count = con.execute(
+            "SELECT COUNT(*) AS n FROM photos WHERE owner_id=? AND purpose='profile' AND site_mode=?",
+            (person["id"], current_site_mode()),
+        ).fetchone()["n"]
+        if count >= MAX_PROFILE_PHOTOS:
+            con.close()
+            raise HTTPException(409, f"A profile can contain up to {MAX_PROFILE_PHOTOS} photos")
+
+    item_id = uid()
+    ts = now()
+    con.execute(
+        "INSERT INTO photos (id,owner_id,fantasy_id,purpose,visibility,site_mode,mime_type,data_base64,width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            item_id,
+            person["id"],
+            fantasy_id,
+            info.purpose,
+            visibility,
+            current_site_mode(),
+            mime_type,
+            encoded,
+            width,
+            height,
+            ts,
+        ),
+    )
+    con.commit()
+    row = con.execute(
+        "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE id=?",
+        (item_id,),
+    ).fetchone()
+    con.close()
+    return photo_metadata(row)
+
+
+@app.get("/api/photos/{photo_id}")
+def get_photo(photo_id: str, authorization: str | None = Header(default=None)):
+    viewer = current_identity(authorization)
+    con = db()
+    photo = con.execute("SELECT * FROM photos WHERE id=?", (photo_id,)).fetchone()
+    if not photo or not can_view_photo(con, photo, viewer):
+        con.close()
+        raise HTTPException(404, "Photo not found")
+    try:
+        payload = base64.b64decode(photo["data_base64"], validate=True)
+    except (binascii.Error, ValueError):
+        con.close()
+        raise HTTPException(500, "Stored photo data is invalid")
+    mime_type = photo["mime_type"]
+    con.close()
+    return Response(
+        content=payload,
+        media_type=mime_type,
+        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.get("/api/me/photos")
+def my_photos(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    rows = con.execute(
+        "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE owner_id=? AND purpose='profile' AND site_mode=? ORDER BY created_at DESC",
+        (person["id"], current_site_mode()),
+    ).fetchall()
+    con.close()
+    return [photo_metadata(row) for row in rows]
+
+
+@app.get("/api/identities/{identity_id}/photos")
+def public_profile_photos(identity_id: str, authorization: str | None = Header(default=None)):
+    viewer = current_identity(authorization)
+    con = db()
+    person = con.execute("SELECT id FROM identities WHERE id=?", (identity_id,)).fetchone()
+    if not person:
+        con.close()
+        raise HTTPException(404, "User not found")
+    if identity_id != viewer["id"] and blocked_between(con, viewer["id"], identity_id):
+        con.close()
+        raise HTTPException(403, "Access between these users is blocked")
+    if identity_id == viewer["id"]:
+        rows = con.execute(
+            "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE owner_id=? AND purpose='profile' AND site_mode=? ORDER BY created_at DESC",
+            (identity_id, current_site_mode()),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE owner_id=? AND purpose='profile' AND site_mode=? AND visibility='public' ORDER BY created_at DESC",
+            (identity_id, current_site_mode()),
+        ).fetchall()
+    con.close()
+    return [photo_metadata(row) for row in rows]
+
+
+@app.put("/api/me/photos/{photo_id}")
+def update_photo_visibility(
+    photo_id: str,
+    info: PhotoVisibilityUpdate,
+    authorization: str | None = Header(default=None),
+):
+    person = current_identity(authorization)
+    con = db()
+    photo = con.execute(
+        "SELECT * FROM photos WHERE id=? AND owner_id=? AND purpose='profile' AND site_mode=?",
+        (photo_id, person["id"], current_site_mode()),
+    ).fetchone()
+    if not photo:
+        con.close()
+        raise HTTPException(404, "Photo not found")
+    con.execute("UPDATE photos SET visibility=? WHERE id=?", (info.visibility, photo_id))
+    con.commit()
+    row = con.execute(
+        "SELECT id,purpose,visibility,site_mode,mime_type,width,height,created_at FROM photos WHERE id=?",
+        (photo_id,),
+    ).fetchone()
+    con.close()
+    return photo_metadata(row)
+
+
+@app.delete("/api/me/photos/{photo_id}")
+def delete_profile_photo(photo_id: str, authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    photo = con.execute(
+        "SELECT id FROM photos WHERE id=? AND owner_id=? AND purpose='profile' AND site_mode=?",
+        (photo_id, person["id"], current_site_mode()),
+    ).fetchone()
+    if not photo:
+        con.close()
+        raise HTTPException(404, "Photo not found")
+    con.execute("DELETE FROM photos WHERE id=?", (photo_id,))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.delete("/api/fantasies/{fantasy_id}/photos/{photo_id}")
+def delete_fantasy_photo(
+    fantasy_id: str,
+    photo_id: str,
+    authorization: str | None = Header(default=None),
+):
+    person = current_identity(authorization)
+    con = db()
+    photo = con.execute(
+        "SELECT p.id FROM photos p JOIN fantasies f ON f.id=p.fantasy_id WHERE p.id=? AND p.fantasy_id=? AND p.owner_id=? AND p.purpose='fantasy' AND p.site_mode=? AND f.kind=?",
+        (photo_id, fantasy_id, person["id"], current_site_mode(), current_site_mode()),
+    ).fetchone()
+    if not photo:
+        con.close()
+        raise HTTPException(404, "Photo not found")
+    con.execute("DELETE FROM photos WHERE id=?", (photo_id,))
+    con.commit()
+    con.close()
+    return {"ok": True}
 
 
 @app.get("/api/me/matches")

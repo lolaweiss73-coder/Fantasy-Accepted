@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#120f1f">
   <title>משאלה התקבלה | Fantasy Accepted</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260930-sitesplit1">
+  <link rel="stylesheet" href="/static/styles.css?v=20261003-voice-media1">
 </head>
 <body data-site-mode="__SITE_MODE__" data-api-base="__API_BASE__">
   <div id="adultAgeGate" class="adult-age-gate" role="dialog" aria-modal="true" aria-labelledby="adultAgeTitle">
@@ -96,6 +96,13 @@
           <label>תיאור
             <textarea id="fantasyDescription" rows="7" maxlength="6000" required placeholder="תארו את המשאלה או הפנטזיה בדרך שלכם"></textarea>
           </label>
+          <div class="photo-upload-block">
+            <label>תמונות למשאלה
+              <input id="fantasyPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+            </label>
+            <p id="fantasyPhotoHint" class="muted photo-hint">אפשר לצרף עד 8 תמונות. התמונות עוברות כיווץ והסרת מידע EXIF לפני השמירה.</p>
+            <div id="fantasyPhotoPreview" class="photo-grid compact"></div>
+          </div>
           <div class="form-grid three">
             <label>אופי
               <select id="fantasyMode">
@@ -214,6 +221,13 @@
 
       <div class="gate-divider"><span>כניסה לאתר</span></div>
       <div class="form-grid two">
+        <label>שפת תצוגה
+          <select id="languageSelect">
+            <option value="auto">אוטומטי / Automatic</option>
+            <option value="he">עברית</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <label>כינוי<input id="nickname" maxlength="40" autocomplete="nickname"></label>
         <label>גיל<input id="age" type="number" min="18" max="120"></label>
         <label>מגדר
@@ -249,11 +263,7 @@
       <div id="welcomeMorinChat" class="welcome-chat" aria-live="polite"></div>
 
       <div id="welcomeVoiceStep" class="welcome-step hidden">
-        <div class="welcome-bubble morin-bubble">נוח לך להמשיך איתי בקול נשי, או שעדיף לך קול גברי?</div>
-        <div class="welcome-actions">
-          <button id="welcomeFemaleVoice" class="primary" type="button">מורין — קול נשי</button>
-          <button id="welcomeMaleVoice" class="ghost" type="button">קול גברי</button>
-        </div>
+        <div id="welcomeLanguageNotice" class="welcome-bubble morin-bubble">אפשר לדבר או לכתוב למורין בכל שפה. מורין מבינה אותך, והקול המדובר שלה תמיד באנגלית.</div>
       </div>
 
       <label class="welcome-transcript-label" for="welcomeTranscript">תמלול השיחה</label>
@@ -382,6 +392,13 @@
       </div>
 
       <div class="form-grid two">
+        <label>שפת תצוגה / שפת אם
+          <select id="profileLanguage">
+            <option value="auto">אוטומטי לפי המכשיר</option>
+            <option value="he">עברית</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <label>אזור
           <input id="profileRegion" maxlength="80" placeholder="למשל מרכז">
         </label>
@@ -421,6 +438,25 @@
         <textarea id="profileBio" rows="4" maxlength="1200" placeholder="מידע שיעזור להתאים אותך נכון"></textarea>
       </label>
       <label id="profileAdultDiscoveryLabel" class="checkline"><input id="profileAdultDiscovery" type="checkbox"> אני רוצה לקבל התאמות יזומות גם מהמסלול למבוגרים</label>
+
+      <section class="profile-photo-manager">
+        <div class="section-head compact">
+          <div>
+            <h3>תמונות פרופיל</h3>
+            <p class="muted">אפשר להעלות עד 8 תמונות ולבחור לכל תמונה אם היא ציבורית או פרטית. באזור המבוגרים הפנים אינן חובה.</p>
+          </div>
+        </div>
+        <div class="profile-photo-upload">
+          <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp">
+          <select id="profilePhotoVisibility">
+            <option value="public">ציבורית</option>
+            <option value="private">פרטית</option>
+          </select>
+          <button id="profilePhotoUploadBtn" class="ghost" type="button">העלאת תמונה</button>
+        </div>
+        <div id="profilePhotoStatus" class="status-text"></div>
+        <div id="profilePhotoGallery" class="photo-grid"></div>
+      </section>
 
       <div class="form-actions">
         <button id="profileSaveBtn" class="primary" type="button">שמירת פרופיל התאמה</button>
@@ -465,7 +501,7 @@
         <div class="morin-orb">◉</div>
         <div><div class="eyebrow">MORIN</div><h2 id="morinHeading">ספרו לי מה הייתם רוצים שיקרה</h2></div>
       </div>
-      <p id="morinIntro" class="muted">אפשר לדבר אליי בקול או לכתוב. ספרו על המשאלה בדרך שלכם ואני אעזור להבין מה צריך כדי להגשים אותה.</p>
+      <p id="morinIntro" class="muted">אפשר לדבר או לכתוב בכל שפה. מורין תבין אתכם; הקול המדובר שלה תמיד באנגלית.</p>
       <div class="voice-row">
         <button id="morinMicBtn" class="morin-outline" type="button">🎙️ דברו אל מורין</button>
         <button id="morinResetBtn" class="ghost" type="button">↺ התחלה מחדש</button>
@@ -481,14 +517,20 @@
     </div>
   </div>
 
+  <div id="morinSubtitles" class="morin-subtitles hidden" aria-live="polite" aria-atomic="true">
+    <div class="morin-subtitle-speaker">MORIN</div>
+    <div id="morinSubtitleText" class="morin-subtitle-text"></div>
+  </div>
   <div id="toast" class="toast"></div>
-  <script src="/static/core.js?v=20260930-adultpath1" defer></script>
+  <script src="/static/i18n.js?v=20261003-language1" defer></script>
+  <script src="/static/core.js?v=20261003-language1" defer></script>
+  <script src="/static/media.js?v=20261003-media1" defer></script>
   <script src="/static/admin.js?v=20260929-admin4" defer></script>
-  <script src="/static/onboarding.js?v=20260930-sitesplit1" defer></script>
-  <script src="/static/profile.js?v=20260930-sitesplit1" defer></script>
-  <script src="/static/feed.js?v=20260929-record1" defer></script>
+  <script src="/static/onboarding.js?v=20261003-voice1" defer></script>
+  <script src="/static/profile.js?v=20261003-media1" defer></script>
+  <script src="/static/feed.js?v=20261003-media1" defer></script>
   <script src="/static/workflow.js?v=20260929-workflow1" defer></script>
-  <script src="/static/create.js?v=20260929-ux1" defer></script>
+  <script src="/static/create.js?v=20261003-media1" defer></script>
   <script src="/static/inbox.js" defer></script>
 </body>
 </html>

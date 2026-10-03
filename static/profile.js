@@ -1,5 +1,9 @@
 function fillProfileForm(){
   if(!state.me)return;
+  if($('#profileLanguage')){
+    const raw=state.me.preferred_language||'auto';
+    $('#profileLanguage').value=['auto','he','en'].includes(raw)?raw:'auto';
+  }
   $('#profileRegion').value=state.me.region||'';
   $('#profileMaritalStatus').value=state.me.marital_status||'prefer_not_to_say';
   $('#profileRelationshipStatus').value=state.me.relationship_status||'prefer_not_to_say';
@@ -20,7 +24,8 @@ async function saveMatchingProfile(){
     availability:$('#profileAvailability').value.trim(),
     travel_radius_km:Number($('#profileTravel').value||0),
     bio:$('#profileBio').value.trim(),
-    adult_discovery:SITE_MODE==='adult' ? $('#profileAdultDiscovery').checked : Boolean(state.me?.adult_discovery)
+    adult_discovery:SITE_MODE==='adult' ? $('#profileAdultDiscovery').checked : Boolean(state.me?.adult_discovery),
+    preferred_language:$('#profileLanguage')?.value||state.me?.preferred_language||'auto'
   };
   $('#profileStatus').textContent='שומרת ומרעננת התאמות…';
   try{
@@ -31,6 +36,10 @@ async function saveMatchingProfile(){
     });
     $('#meBadge').textContent=`${state.me.nickname} · ${state.me.age}`;
     $('#region').value=state.me.region||'';
+    FAI18N.set(state.me.preferred_language||'auto');
+    state.language=FAI18N.active(state.me);
+    if(typeof window.applyLanguageUI==='function')window.applyLanguageUI();
+    if(typeof window.refreshWelcomeLanguage==='function')window.refreshWelcomeLanguage();
     $('#profileStatus').textContent='נשמר';
     toast('הפרופיל נשמר ומורין חיפשה התאמות מחדש');
     await refreshMatchUi();
@@ -38,6 +47,96 @@ async function saveMatchingProfile(){
     $('#profileStatus').textContent=err.message;
   }
 }
+
+
+async function loadProfilePhotos(){
+  const root=$('#profilePhotoGallery');
+  if(!root)return;
+  root.replaceChildren();
+  try{
+    const photos=await api('/api/me/photos');
+    if(!photos.length){
+      const empty=document.createElement('div');
+      empty.className='empty photo-empty';
+      empty.textContent=state.language==='he'?'עדיין לא העלית תמונות לפרופיל הזה.':'No profile photos yet.';
+      root.append(empty);
+      return;
+    }
+    for(const photo of photos){
+      const tile=document.createElement('article');
+      tile.className='photo-tile managed';
+      const img=document.createElement('img');
+      img.alt=photo.visibility==='private'?'Private profile photo':'Public profile photo';
+      tile.append(img);
+      FA_MEDIA.setProtectedImage(img,photo);
+
+      const controls=document.createElement('div');
+      controls.className='photo-controls';
+      const select=document.createElement('select');
+      select.innerHTML='<option value="public">ציבורית / Public</option><option value="private">פרטית / Private</option>';
+      select.value=photo.visibility;
+      select.addEventListener('change',async()=>{
+        select.disabled=true;
+        try{
+          await api(`/api/me/photos/${photo.id}`,{
+            method:'PUT',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({visibility:select.value})
+          });
+          toast(select.value==='public'?'התמונה ציבורית':'התמונה פרטית');
+        }catch(err){
+          select.value=photo.visibility;
+          toast(err.message);
+        }finally{
+          select.disabled=false;
+        }
+      });
+      const remove=document.createElement('button');
+      remove.type='button';
+      remove.className='ghost danger';
+      remove.textContent=state.language==='he'?'מחיקה':'Delete';
+      remove.onclick=async()=>{
+        if(!confirm(state.language==='he'?'למחוק את התמונה?':'Delete this photo?'))return;
+        try{
+          await api(`/api/me/photos/${photo.id}`,{method:'DELETE'});
+          await loadProfilePhotos();
+        }catch(err){toast(err.message)}
+      };
+      controls.append(select,remove);
+      tile.append(controls);
+      root.append(tile);
+    }
+  }catch(err){
+    root.innerHTML=`<div class="error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function uploadProfilePhoto(){
+  const input=$('#profilePhotoInput');
+  const file=input?.files?.[0];
+  if(!file){
+    $('#profilePhotoStatus').textContent=state.language==='he'?'בחרו תמונה קודם.':'Choose a photo first.';
+    return;
+  }
+  $('#profilePhotoUploadBtn').disabled=true;
+  $('#profilePhotoStatus').textContent=state.language==='he'?'מכינה ומעלה את התמונה…':'Preparing and uploading photo…';
+  try{
+    const dataUrl=await FA_MEDIA.prepareImage(file);
+    await FA_MEDIA.uploadPrepared(dataUrl,{
+      purpose:'profile',
+      visibility:$('#profilePhotoVisibility').value
+    });
+    input.value='';
+    $('#profilePhotoStatus').textContent=state.language==='he'?'התמונה נשמרה.':'Photo saved.';
+    await loadProfilePhotos();
+  }catch(err){
+    $('#profilePhotoStatus').textContent=err.message;
+  }finally{
+    $('#profilePhotoUploadBtn').disabled=false;
+  }
+}
+
+if($('#profilePhotoUploadBtn'))$('#profilePhotoUploadBtn').onclick=uploadProfilePhoto;
 
 function notificationCard(item){
   const el=document.createElement('button');
@@ -134,8 +233,9 @@ async function loadMyActivitySummary(){
 $('#profileBtn').onclick=async()=>{
   fillProfileForm();
   $('#profileStatus').textContent='';
+  $('#profilePhotoStatus').textContent='';
   openModal('profileModal');
-  await loadMyActivitySummary();
+  await Promise.all([loadMyActivitySummary(),loadProfilePhotos()]);
 };
 $('#profileSaveBtn').onclick=saveMatchingProfile;
 

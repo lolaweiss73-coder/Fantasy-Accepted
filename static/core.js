@@ -18,6 +18,7 @@ const state = {
   inbox: [],
   roleCount: 0,
   track: SITE_MODE,
+  language: FAI18N.active(),
 };
 
 const labels = {
@@ -62,22 +63,31 @@ function showView(name){
 }
 function applyTrackUI(){
   state.track=SITE_MODE;
+  state.language=FAI18N.active(state.me);
   const adult=SITE_MODE==='adult';
-  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
+  const he=state.language==='he';
+  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
-  if($('#feedTitle'))$('#feedTitle').textContent=adult?'מה הפנטזיה שלך?':'מה היית רוצה שיקרה?';
+  if($('#feedTitle'))$('#feedTitle').textContent=adult
+    ?(he?'מה הפנטזיה שלך?':'What is your fantasy?')
+    :(he?'מה היית רוצה שיקרה?':'What do you wish for?');
   if($('#feedLead'))$('#feedLead').textContent=adult
-    ?'ספרו למורין על פנטזיה למבוגרים. היא תעזור להבין מי חסר ומה חשוב להתאמה.'
-    :'מחווה, עזרה, יצירה, חוויה, הפתעה או רעיון אחר — ספרו למורין מה הייתם רוצים להגשים.';
-  if($('#feedEmpty'))$('#feedEmpty').textContent=adult?'עדיין אין פנטזיות שמתאימות לחיפוש.':'עדיין אין משאלות שמתאימות לחיפוש.';
-  if($('#createHeading'))$('#createHeading').textContent=adult?'יצירת פנטזיה':'יצירת משאלה';
-  if($('#morinHeading'))$('#morinHeading').textContent=adult?'ספרו לי את הפנטזיה כמו שהיא':'ספרו לי מה הייתם רוצים שיקרה';
-  if($('#morinIntro'))$('#morinIntro').textContent=adult
-    ?'אפשר לדבר אליי בקול או לכתוב. אני אעזור להפוך את הפנטזיה לטיוטה ברורה להתאמה.'
-    :'אפשר לדבר אליי בקול או לכתוב. ספרו על המשאלה בדרך שלכם ואני אעזור להבין מה צריך כדי להגשים אותה.';
+    ?(he?'ספרו למורין על פנטזיה למבוגרים. היא תעזור להבין מי חסר ומה חשוב להתאמה.':'Tell Morin about an adult fantasy. She will help clarify who is missing and what matters for a match.')
+    :(he?'מחווה, עזרה, יצירה, חוויה, הפתעה או רעיון אחר — ספרו למורין מה הייתם רוצים להגשים.':'A gesture, help, creation, experience, surprise or another idea — tell Morin what you want to make real.');
+  if($('#feedEmpty'))$('#feedEmpty').textContent=adult
+    ?(he?'עדיין אין פנטזיות שמתאימות לחיפוש.':'No fantasies match this search yet.')
+    :(he?'עדיין אין משאלות שמתאימות לחיפוש.':'No wishes match this search yet.');
+  if($('#createHeading'))$('#createHeading').textContent=adult?(he?'יצירת פנטזיה':'Create a fantasy'):(he?'יצירת משאלה':'Create a wish');
+  if($('#morinHeading'))$('#morinHeading').textContent=adult?(he?'ספרו לי את הפנטזיה כמו שהיא':'Tell me the fantasy in your own words'):(he?'ספרו לי מה הייתם רוצים שיקרה':'Tell me what you wish for');
+  if($('#morinIntro'))$('#morinIntro').textContent=he
+    ?'אפשר לדבר או לכתוב בכל שפה. מורין תבין אתכם; הקול המדובר שלה תמיד באנגלית.'
+    :'Speak or write in any language. Morin will understand you; her spoken voice is always English.';
   if($('#fantasyKind'))$('#fantasyKind').value=state.track;
-  if($('#ownerParticipationLabel'))$('#ownerParticipationLabel').textContent=adult?'יוזם/ת הפנטזיה':'יוזם/ת המשאלה';
-  if($('#ownerParticipatesNo'))$('#ownerParticipatesNo').textContent=adult?'מארגן/ת בלבד — הפנטזיה מיועדת לאחרים':'מארגן/ת בלבד — המשאלה מיועדת לאחרים';
+  if($('#ownerParticipationLabel'))$('#ownerParticipationLabel').textContent=adult?(he?'יוזם/ת הפנטזיה':'Fantasy creator'):(he?'יוזם/ת המשאלה':'Wish creator');
+  if($('#ownerParticipatesNo'))$('#ownerParticipatesNo').textContent=adult?(he?'מארגן/ת בלבד — הפנטזיה מיועדת לאחרים':'Organizer only — the fantasy is for others'):(he?'מארגן/ת בלבד — המשאלה מיועדת לאחרים':'Organizer only — the wish is for others');
+  if($('#fantasyPhotoHint'))$('#fantasyPhotoHint').textContent=adult
+    ?(he?'אפשר לצרף עד 8 תמונות. תמונות גוף ללא פנים הן בסדר; העלו רק תמונות שמותר לכם לשתף. מידע EXIF מוסר אוטומטית.':'Attach up to 8 photos. Face-free body photos are fine; only upload images you have the right to share. EXIF metadata is removed automatically.')
+    :(he?'אפשר לצרף עד 8 תמונות שיעזרו להסביר את המשאלה. מידע EXIF מוסר אוטומטית.':'Attach up to 8 photos that help explain the wish. EXIF metadata is removed automatically.');
 }
 
 function setTrack(_track,{reload=true}={}){
@@ -91,26 +101,36 @@ $$('[data-track]').forEach(btn=>btn.addEventListener('click',()=>{
 }));
 
 function applySiteModeUI(){
+  state.language=FAI18N.active(state.me);
+  const he=state.language==='he';
   const adult=SITE_MODE==='adult';
+  document.documentElement.lang=state.language;
+  document.documentElement.dir=he?'rtl':'ltr';
   const brand=$('.brand');
   const tagline=$('.tagline');
   const gateEyebrow=$('#gate .eyebrow');
   const gateTitle=$('#gate h1');
   const gateLead=$('#gate .lead');
-  if(brand)brand.textContent=adult?'Fantasy Accepted 18+':'משאלה התקבלה';
-  if(tagline)tagline.textContent=adult?'ADULT · לבקש. להתחבר. להגשים.':'FANTASY ACCEPTED · לבקש. להתחבר. להגשים.';
-  if(gateEyebrow)gateEyebrow.textContent=adult?'FANTASY ACCEPTED · 18+':'משאלה התקבלה · FANTASY ACCEPTED';
-  if(gateTitle)gateTitle.textContent=adult?'מה הפנטזיה שלך?':'יש משהו שהיית רוצה שיקרה?';
-  if(gateLead)gateLead.textContent=adult
-    ?'ספרו למורין על פנטזיה למבוגרים. היא תעזור להבין מי חסר, למצוא התאמות וללוות את התהליך עד לביצוע.'
-    :'ספרו למורין משהו שהייתם רוצים שיקרה. היא תעזור להבין מי או מה חסר, למצוא התאמות, וללוות את המשאלה עד לביצוע.';
-  if($('#enterBtn'))$('#enterBtn').textContent=adult?'כניסה ל־Fantasy Accepted':'כניסה ל־משאלה התקבלה';
+  if(brand)brand.textContent=adult?'Fantasy Accepted 18+':(he?'משאלה התקבלה':'Fantasy Accepted');
+  if(tagline)tagline.textContent=adult?'ADULT · NAME IT · MATCH IT · MAKE IT REAL':(he?'FANTASY ACCEPTED · לבקש. להתחבר. להגשים.':'FANTASY ACCEPTED · NAME IT · MATCH IT · MAKE IT REAL');
+  if(gateEyebrow)gateEyebrow.textContent=adult?'FANTASY ACCEPTED · 18+':(he?'משאלה התקבלה · FANTASY ACCEPTED':'FANTASY ACCEPTED');
+  if(gateTitle)gateTitle.textContent=adult?(he?'מה הפנטזיה שלך?':'What is your fantasy?'):(he?'מה המשאלה שלך?':'What do you wish for?');
+  if(gateLead)gateLead.textContent=FAI18N.text(FAI18N.script(SITE_MODE)[1],state.me);
+  if($('#enterBtn'))$('#enterBtn').textContent=adult?(he?'כניסה ל־Fantasy Accepted':'Enter Fantasy Accepted'):(he?'כניסה ל־משאלה התקבלה':'Enter Fantasy Accepted');
   if($('#gateFineprint'))$('#gateFineprint').textContent=adult
-    ?'הכניסה לאתר זה מיועדת לבני 18 ומעלה בלבד.'
-    :'בשלב ההשקה השירות הכללי מיועד לבני 18 ומעלה.';
+    ?(he?'הכניסה לאתר זה מיועדת לבני 18 ומעלה בלבד.':'This area is for adults aged 18 and over only.')
+    :(he?'בשלב ההשקה השירות הכללי מיועד לבני 18 ומעלה.':'During launch, the general service is currently for adults aged 18 and over.');
+  if($('#welcomeLanguageNotice'))$('#welcomeLanguageNotice').textContent=he
+    ?'אפשר לדבר או לכתוב למורין בכל שפה. מורין מבינה אותך, והקול המדובר שלה תמיד באנגלית.'
+    :'Speak or write to Morin in any language. She will understand you, and her spoken voice is always English.';
+  if($('#languageSelect')){
+    const raw=state.me?.preferred_language||FAI18N.preferredRaw();
+    $('#languageSelect').value=['auto','he','en'].includes(raw)?raw:'auto';
+  }
   if(adult && $('#adultConfirm'))$('#adultConfirm').checked=true;
   applyTrackUI();
 }
+window.applyLanguageUI=applySiteModeUI;
 
 if($('#adultAgeAccept')){
   $('#adultAgeAccept').addEventListener('click',()=>{
@@ -123,7 +143,17 @@ if($('#adultAgeAccept')){
 
 applySiteModeUI();
 
-function formatDate(ts){ return new Date(ts*1000).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+if($('#languageSelect')){
+  $('#languageSelect').value=['auto','he','en'].includes(FAI18N.preferredRaw())?FAI18N.preferredRaw():'auto';
+  $('#languageSelect').addEventListener('change',()=>{
+    FAI18N.set($('#languageSelect').value);
+    state.language=FAI18N.active(state.me);
+    applySiteModeUI();
+    if(typeof window.refreshWelcomeLanguage==='function')window.refreshWelcomeLanguage();
+  });
+}
+
+function formatDate(ts){ return new Date(ts*1000).toLocaleString(state.language==='he'?'he-IL':'en-US',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
 async function restoreSession(){
   if(!state.token) return;
@@ -135,6 +165,8 @@ async function restoreSession(){
   }
 }
 function enterApp(){
+  if(state.me?.preferred_language && state.me.preferred_language!=='auto')FAI18N.set(state.me.preferred_language);
+  applySiteModeUI();
   $('#gate').classList.remove('open'); $('#app').classList.remove('hidden');
   $('#logoutBtn').classList.remove('hidden'); $('#dndBtn').classList.remove('hidden'); $('#meBadge').classList.remove('hidden');
   if($('#profileBtn'))$('#profileBtn').classList.remove('hidden');
@@ -152,6 +184,7 @@ $('#enterBtn').onclick = async () => {
     nickname: $('#nickname').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
     region:$('#region').value.trim(), marital_status:$('#maritalStatus')?.value||'prefer_not_to_say',
     relationship_status:$('#relationshipStatus')?.value||'prefer_not_to_say',
+    preferred_language:$('#languageSelect')?.value||FAI18N.preferredRaw()||'auto',
     adult_confirm:SITE_MODE==='adult' ? localStorage.getItem(ADULT_GATE_KEY)==='1' : $('#adultConfirm').checked
   };
   if(!payload.nickname || payload.age < 18 || !payload.gender || !payload.adult_confirm){

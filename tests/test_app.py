@@ -771,3 +771,155 @@ def test_adult_path_cannot_read_general_wish():
 
     adult_direct = client.get(f"/adult/api/fantasies/{general['id']}", headers=owner_h)
     assert adult_direct.status_code == 404
+
+
+# v0.4 language and media regression tests
+PHOTO_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def test_session_and_profile_keep_preferred_language():
+    app_module.SITE_MODE = "general"
+    response = client.post(
+        "/api/session",
+        json={
+            "nickname": "language-user",
+            "age": 33,
+            "gender": "male",
+            "region": "center",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "preferred_language": "he",
+            "adult_confirm": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    headers = {"Authorization": f"Bearer {data['token']}"}
+    assert data["identity"]["preferred_language"] == "he"
+
+    updated = client.put(
+        "/api/me/profile",
+        headers=headers,
+        json={
+            "region": "center",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "skills": [],
+            "availability": "",
+            "travel_radius_km": 0,
+            "bio": "",
+            "adult_discovery": False,
+            "preferred_language": "en",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["preferred_language"] == "en"
+    assert client.get("/api/me", headers=headers).json()["preferred_language"] == "en"
+
+
+def test_profile_photo_visibility_and_site_isolation():
+    app_module.SITE_MODE = "adult"
+    owner, owner_h = join("photo-owner", 34, "female")
+    viewer, viewer_h = join("photo-viewer", 35, "male")
+
+    private_upload = client.post(
+        "/api/photos",
+        headers=owner_h,
+        json={"purpose": "profile", "visibility": "private", "data_url": PHOTO_DATA_URL},
+    )
+    assert private_upload.status_code == 200, private_upload.text
+    private_photo = private_upload.json()
+    assert private_photo["visibility"] == "private"
+
+    public_for_viewer = client.get(
+        f"/api/identities/{owner['identity']['id']}/photos",
+        headers=viewer_h,
+    )
+    assert public_for_viewer.status_code == 200
+    assert all(item["id"] != private_photo["id"] for item in public_for_viewer.json())
+
+    hidden_binary = client.get(f"/api/photos/{private_photo['id']}", headers=viewer_h)
+    assert hidden_binary.status_code == 404
+
+    made_public = client.put(
+        f"/api/me/photos/{private_photo['id']}",
+        headers=owner_h,
+        json={"visibility": "public"},
+    )
+    assert made_public.status_code == 200
+    assert made_public.json()["visibility"] == "public"
+
+    now_visible = client.get(
+        f"/api/identities/{owner['identity']['id']}/photos",
+        headers=viewer_h,
+    )
+    assert any(item["id"] == private_photo["id"] for item in now_visible.json())
+
+    binary = client.get(f"/api/photos/{private_photo['id']}", headers=viewer_h)
+    assert binary.status_code == 200
+    assert binary.headers["content-type"].startswith("image/jpeg")
+
+    app_module.SITE_MODE = "general"
+    isolated = client.get("/api/me/photos", headers=owner_h)
+    assert isolated.status_code == 200
+    assert all(item["id"] != private_photo["id"] for item in isolated.json())
+    isolated_binary = client.get(f"/api/photos/{private_photo['id']}", headers=owner_h)
+    assert isolated_binary.status_code == 404
+
+
+def test_fantasy_photo_is_returned_in_wish_payload():
+    app_module.SITE_MODE = "general"
+    owner, owner_h = join("wish-photo-owner", 38, "female")
+    wish = create_fantasy(owner_h, kind="general")
+
+    uploaded = client.post(
+        "/api/photos",
+        headers=owner_h,
+        json={
+            "purpose": "fantasy",
+            "fantasy_id": wish["id"],
+            "visibility": "private",
+            "data_url": PHOTO_DATA_URL,
+        },
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    photo = uploaded.json()
+    # Wish photos follow the wish visibility and are not a separate private profile image.
+    assert photo["visibility"] == "public"
+
+    detail = client.get(f"/api/fantasies/{wish['id']}", headers=owner_h)
+    assert detail.status_code == 200
+    assert any(item["id"] == photo["id"] for item in detail.json()["photos"])
+
+
+def test_invalid_photo_data_is_rejected():
+    app_module.SITE_MODE = "general"
+    _, headers = join("bad-photo", 31, "male")
+    response = client.post(
+        "/api/photos",
+        headers=headers,
+        json={
+            "purpose": "profile",
+            "visibility": "public",
+            "data_url": "data:image/png;base64," + ("A" * 100),
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_template_uses_english_voice_subtitles_and_media_controls():
+    app_module.SITE_MODE = "general"
+    page = client.get("/")
+    assert page.status_code == 200
+    html = page.text
+    assert "/static/i18n.js" in html
+    assert "/static/media.js" in html
+    assert 'id="morinSubtitles"' in html
+    assert 'id="fantasyPhotos"' in html
+    assert 'id="profilePhotoInput"' in html
+    assert 'id="profileLanguage"' in html
+    assert 'id="welcomeFemaleVoice"' not in html
+    assert 'id="welcomeMaleVoice"' not in html

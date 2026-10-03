@@ -34,10 +34,18 @@ function renderFeed(){
       <div class="eyebrow">${escapeHtml(labels.kind[f.kind]||f.kind)} · ${escapeHtml(labels.mode[f.mode]||f.mode)}${f.region?` · ${escapeHtml(f.region)}`:''}</div>
       <div class="row-top"><h3>${escapeHtml(f.title)}</h3><span class="workflow-pill ${escapeHtml(f.workflow?.status||f.status)}">${escapeHtml(workflowLabel(f))}</span></div>
       <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
+      ${f.photos?.length?'<div class="wish-card-photo"></div>':''}
       <p class="fantasy-desc">${escapeHtml(f.description)}</p>
       <div class="tag-row">${f.tags.map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
       <div class="role-chips">${ownerChip}${f.roles.map(r=>`<span class="role-chip ${r.eligible?'match':'no-match'}">${escapeHtml(r.name)}${r.eligible?' ✓':''}</span>`).join('')}</div>
       <div class="card-actions"><button class="primary open-detail">פתיחה</button>${f.owner.id===state.me.id?'<button class="ghost manage-apps">מועמדויות</button>':matches?`<span class="status-pill">${matches} תפקידים מתאימים</span>`:''}</div>`;
+    if(f.photos?.length){
+      const slot=card.querySelector('.wish-card-photo');
+      const img=document.createElement('img');
+      img.alt='Wish photo';
+      slot.append(img);
+      FA_MEDIA.setProtectedImage(img,f.photos[0]);
+    }
     card.querySelector('.open-detail').onclick=()=>openFantasy(f.id);
     const manage=card.querySelector('.manage-apps');
     if(manage)manage.onclick=()=>openApplications(f.id);
@@ -85,13 +93,65 @@ async function openFantasy(id){
         <span>${f.workflow?.roles_filled?'כל התפקידים התמלאו':'עדיין מחפשים אנשים'}</span>
       </div>
       <div class="meta-row"><span>${escapeHtml(f.owner.nickname)}</span><span>·</span><span>${f.owner.age}</span><span>·</span><span>${escapeHtml(labels.gender[f.owner.gender]||f.owner.gender)}</span></div>
+      <div id="ownerProfilePhotos" class="photo-grid profile-public-grid"></div>
       <p class="detail-description">${escapeHtml(f.description)}</p>
+      <div id="detailPhotoGallery" class="photo-grid wish-detail-photos"></div>
       <div class="tag-row">${f.tags.map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
       <h3>תפקידים</h3>
       ${f.owner_participates?`<div class="role-detail"><h4>יוזם/ת ה${noun}</h4><div class="muted">כבר בפנים — לא נדרשת מועמדות.</div></div>`:''}
       <div id="detailRoles"></div>
       <div class="workflow-actions">${workflowActionsHtml(f,mine)}</div>
       <div class="card-actions">${!mine?`<button id="messageOwner" class="ghost">שיחה פרטית עם ${escapeHtml(f.owner.nickname)}</button>`:''}<button id="reportFantasy" class="ghost">דיווח</button></div>`;
+
+
+    const detailGallery=$('#detailPhotoGallery');
+    if(detailGallery && f.photos?.length){
+      for(const photo of f.photos){
+        const tile=document.createElement('div');
+        tile.className='photo-tile';
+        const img=document.createElement('img');
+        img.alt='Wish photo';
+        tile.append(img);
+        FA_MEDIA.setProtectedImage(img,photo);
+        if(mine){
+          const remove=document.createElement('button');
+          remove.type='button';
+          remove.className='photo-delete ghost danger';
+          remove.textContent=state.language==='he'?'מחיקה':'Delete';
+          remove.onclick=async()=>{
+            try{
+              await api(`/api/fantasies/${f.id}/photos/${photo.id}`,{method:'DELETE'});
+              toast(state.language==='he'?'התמונה נמחקה':'Photo deleted');
+              await openFantasy(f.id);
+            }catch(err){toast(err.message)}
+          };
+          tile.append(remove);
+        }
+        detailGallery.append(tile);
+      }
+    }
+
+    const ownerGallery=$('#ownerProfilePhotos');
+    if(ownerGallery){
+      try{
+        const ownerPhotos=await api(`/api/identities/${f.owner.id}/photos`);
+        for(const photo of ownerPhotos){
+          const tile=document.createElement('div');
+          tile.className='photo-tile profile-public';
+          const img=document.createElement('img');
+          img.alt='Profile photo';
+          tile.append(img);
+          FA_MEDIA.setProtectedImage(img,photo);
+          if(mine && photo.visibility==='private'){
+            const badge=document.createElement('span');
+            badge.className='photo-privacy-badge';
+            badge.textContent=state.language==='he'?'פרטית':'Private';
+            tile.append(badge);
+          }
+          ownerGallery.append(tile);
+        }
+      }catch{}
+    }
 
     const roles=$('#detailRoles');
     for(const r of f.roles){

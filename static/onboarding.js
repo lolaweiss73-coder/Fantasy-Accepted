@@ -1,8 +1,9 @@
-const WELCOME_SEEN_KEY=SITE_MODE==='adult'?'faAdultWelcomeExplainedV2':'faGeneralWelcomeExplainedV2';
-let welcomeVoices=[];
+const WELCOME_SEEN_KEY=SITE_MODE==='adult'?'faAdultWelcomeExplainedV3':'faGeneralWelcomeExplainedV3';
+let welcomeAudioGeneration=0;
+let welcomeCurrentAudio=null;
+let welcomeBlockedAudio=null;
 let welcomeAutoReplayArmed=false;
-let welcomeSpeechGeneration=0;
-let welcomeActiveUtterances=0;
+const welcomeAudioUrlCache=new Map();
 
 function welcomeLanguage(){
   return FAI18N.active(state.me);
@@ -18,38 +19,6 @@ function captionOf(item){
 
 function currentWelcomeScript(){
   return FAI18N.script(SITE_MODE);
-}
-
-function refreshWelcomeVoices(){
-  if(!('speechSynthesis' in window))return;
-  welcomeVoices=window.speechSynthesis.getVoices()||[];
-}
-refreshWelcomeVoices();
-if('speechSynthesis' in window && 'onvoiceschanged' in window.speechSynthesis){
-  window.speechSynthesis.onvoiceschanged=refreshWelcomeVoices;
-}
-
-function voiceScore(voice){
-  const name=String(voice?.name||'').toLowerCase();
-  const lang=String(voice?.lang||'').toLowerCase();
-  let score=0;
-  if(lang==='en-us')score+=100;
-  else if(lang.startsWith('en-us'))score+=90;
-  else if(lang==='en-gb')score+=86;
-  else if(lang.startsWith('en'))score+=75;
-  const preferred=['samantha','ava','jenny','aria','sonia','serena','karen','moira','tessa','victoria','zira','susan','female'];
-  const avoid=['david','daniel','alex','fred','tom','male'];
-  if(preferred.some(t=>name.includes(t)))score+=35;
-  if(avoid.some(t=>name.includes(t)))score-=18;
-  return score;
-}
-
-function pickWelcomeVoice(){
-  refreshWelcomeVoices();
-  if(!welcomeVoices.length)return null;
-  const english=welcomeVoices.filter(v=>String(v.lang||'').toLowerCase().startsWith('en'));
-  const pool=english.length?english:welcomeVoices;
-  return [...pool].sort((a,b)=>voiceScore(b)-voiceScore(a))[0]||null;
 }
 
 function appendWelcomeTranscript(text,speaker='Morin'){
@@ -68,74 +37,173 @@ function showSubtitle(text){
   wrap.classList.toggle('hidden',!box.textContent);
 }
 
-function hideSubtitleSoon(generation,delay=500){
-  setTimeout(()=>{
-    if(generation!==welcomeSpeechGeneration || welcomeActiveUtterances>0)return;
-    $('#morinSubtitles')?.classList.add('hidden');
-  },delay);
+function hideSubtitle(){
+  $('#morinSubtitles')?.classList.add('hidden');
 }
 
-function speakPair(item,{generation=welcomeSpeechGeneration}={}){
-  if(!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window))return false;
-  const spoken=String(item?.en||'').trim();
-  if(!spoken)return false;
-  const utterance=new SpeechSynthesisUtterance(spoken);
-  utterance.lang='en-US';
-  utterance.rate=0.96;
-  utterance.pitch=1.02;
-  const voice=pickWelcomeVoice();
-  if(voice)utterance.voice=voice;
-  utterance.onstart=()=>{
-    if(generation!==welcomeSpeechGeneration)return;
-    welcomeActiveUtterances++;
-    showSubtitle(captionOf(item));
-  };
-  utterance.onend=()=>{
-    if(generation!==welcomeSpeechGeneration)return;
-    welcomeActiveUtterances=Math.max(0,welcomeActiveUtterances-1);
-    hideSubtitleSoon(generation);
-  };
-  utterance.onerror=()=>{
-    if(generation!==welcomeSpeechGeneration)return;
-    welcomeActiveUtterances=Math.max(0,welcomeActiveUtterances-1);
-    hideSubtitleSoon(generation);
-  };
-  try{
-    window.speechSynthesis.speak(utterance);
-    return true;
-  }catch{
-    return false;
-  }
+function normalLanguageNotice(){
+  return welcomeLanguage()==='he'
+    ?'אפשר לדבר או לכתוב לי בכל שפה. אני אבין אותך. הקול שלי תמיד באנגלית, והכתוביות מוצגות בשפה שלך. הקול שאת/ה שומע/ת נוצר באמצעות בינה מלאכותית.'
+    :'Speak or write to me in any language. I’ll understand you. My voice is always English, and subtitles appear in your language. The voice you hear is AI-generated.';
+}
+
+function tapLanguageNotice(){
+  return welcomeLanguage()==='he'
+    ?'הדפדפן מחכה ללחיצה הראשונה כדי לאפשר קול. גע/י במסך פעם אחת ומורין תתחיל לדבר.'
+    :'Your browser is waiting for the first tap before it can play sound. Tap once and Morin will start speaking.';
+}
+
+function setLanguageNotice(text=normalLanguageNotice()){
+  if($('#welcomeLanguageNotice'))$('#welcomeLanguageNotice').textContent=text;
+}
+
+function audioPath(path){
+  return `${API_BASE}${path}`;
+}
+
+function cachedAudioUrl(key,path){
+  if(welcomeAudioUrlCache.has(key))return welcomeAudioUrlCache.get(key);
+  const promise=fetch(audioPath(path))
+    .then(response=>{
+      if(!response.ok)throw new Error(`Voice request failed (${response.status})`);
+      return response.blob();
+    })
+    .then(blob=>URL.createObjectURL(blob))
+    .catch(err=>{
+      welcomeAudioUrlCache.delete(key);
+      throw err;
+    });
+  welcomeAudioUrlCache.set(key,promise);
+  return promise;
+}
+
+function preloadWelcomeAudio(){
+  const script=currentWelcomeScript();
+  script.forEach((_,index)=>{
+    cachedAudioUrl(`base:${SITE_MODE}:${index}`,`/api/morin/welcome-audio/${index}`).catch(()=>{});
+  });
 }
 
 function stopWelcomeSpeech(){
-  welcomeSpeechGeneration++;
-  welcomeActiveUtterances=0;
-  if('speechSynthesis' in window)window.speechSynthesis.cancel();
-  $('#morinSubtitles')?.classList.add('hidden');
+  welcomeAudioGeneration++;
+  welcomeAutoReplayArmed=false;
+  welcomeBlockedAudio=null;
+  if(welcomeCurrentAudio){
+    try{welcomeCurrentAudio.pause()}catch{}
+    welcomeCurrentAudio=null;
+  }
+  hideSubtitle();
+  setLanguageNotice();
+}
+
+function attachAndPlayAudio(url,caption,{generation,onended}){
+  if(generation!==welcomeAudioGeneration)return;
+  const audio=new Audio(url);
+  audio.preload='auto';
+  welcomeCurrentAudio=audio;
+  audio.onplay=()=>{
+    if(generation!==welcomeAudioGeneration)return;
+    showSubtitle(caption);
+    setLanguageNotice();
+  };
+  audio.onended=()=>{
+    if(generation!==welcomeAudioGeneration)return;
+    welcomeCurrentAudio=null;
+    welcomeBlockedAudio=null;
+    if(typeof onended==='function')onended();
+  };
+  audio.onerror=()=>{
+    if(generation!==welcomeAudioGeneration)return;
+    welcomeCurrentAudio=null;
+    welcomeBlockedAudio=null;
+    if(typeof onended==='function')setTimeout(onended,250);
+  };
+
+  const playResult=audio.play();
+  if(playResult&&typeof playResult.catch==='function'){
+    playResult.catch(()=>{
+      if(generation!==welcomeAudioGeneration)return;
+      welcomeBlockedAudio={audio,caption,generation};
+      welcomeAutoReplayArmed=true;
+      showSubtitle(caption);
+      setLanguageNotice(tapLanguageNotice());
+    });
+  }
+}
+
+async function playWelcomeSegment(index,generation){
+  const script=currentWelcomeScript();
+  if(generation!==welcomeAudioGeneration)return;
+  if(index>=script.length){
+    welcomeAutoReplayArmed=false;
+    welcomeBlockedAudio=null;
+    setLanguageNotice();
+    setTimeout(()=>{
+      if(generation===welcomeAudioGeneration)hideSubtitle();
+    },600);
+    return;
+  }
+
+  const item=script[index];
+  const caption=captionOf(item);
+  try{
+    const url=await cachedAudioUrl(
+      `base:${SITE_MODE}:${index}`,
+      `/api/morin/welcome-audio/${index}`
+    );
+    attachAndPlayAudio(url,caption,{
+      generation,
+      onended:()=>playWelcomeSegment(index+1,generation)
+    });
+  }catch{
+    showSubtitle(caption);
+    setTimeout(()=>playWelcomeSegment(index+1,generation),700);
+  }
 }
 
 function speakWelcomeSequence(){
   stopWelcomeSpeech();
-  const generation=welcomeSpeechGeneration;
-  const script=currentWelcomeScript();
-  for(const item of script)speakPair(item,{generation});
+  const generation=welcomeAudioGeneration;
+  preloadWelcomeAudio();
+  playWelcomeSegment(0,generation);
 }
 
-function welcomeSay(item,{showBubble=true,speak=true,speaker='Morin'}={}){
+async function playExtraVoice(key,item){
+  stopWelcomeSpeech();
+  const generation=welcomeAudioGeneration;
   const caption=captionOf(item);
-  if(!caption)return;
-  if(showBubble){
-    const root=$('#welcomeMorinChat');
-    if(root){
-      const bubble=document.createElement('div');
-      bubble.className='welcome-bubble morin-bubble';
-      bubble.textContent=caption;
-      root.append(bubble);
-    }
+  showSubtitle(caption);
+  try{
+    const url=await cachedAudioUrl(
+      `extra:${key}`,
+      `/api/morin/welcome-extra-audio/${encodeURIComponent(key)}`
+    );
+    attachAndPlayAudio(url,caption,{
+      generation,
+      onended:()=>{
+        if(generation===welcomeAudioGeneration)setTimeout(hideSubtitle,500);
+      }
+    });
+  }catch{
+    setTimeout(hideSubtitle,1200);
   }
-  appendWelcomeTranscript(caption,speaker);
-  if(speak)speakPair(item);
+}
+
+function resumeBlockedAudio(){
+  const pending=welcomeBlockedAudio;
+  if(!pending || pending.generation!==welcomeAudioGeneration)return false;
+  welcomeAutoReplayArmed=false;
+  setLanguageNotice();
+  try{
+    const result=pending.audio.play();
+    if(result&&typeof result.catch==='function'){
+      result.catch(()=>setLanguageNotice(tapLanguageNotice()));
+    }
+    return true;
+  }catch{
+    setLanguageNotice(tapLanguageNotice());
+    return false;
+  }
 }
 
 function renderWelcomeCopy({speak=false}={}){
@@ -156,11 +224,7 @@ function renderWelcomeCopy({speak=false}={}){
   if($('#welcomeMorinModal .morin-header h2')){
     $('#welcomeMorinModal .morin-header h2').textContent=he?'היי, אני מורין. הנה איך זה עובד.':'Hi, I’m Morin. Here’s how this works.';
   }
-  if($('#welcomeLanguageNotice')){
-    $('#welcomeLanguageNotice').textContent=he
-      ?'אפשר לדבר או לכתוב לי בכל שפה. אני אבין אותך. הקול שלי תמיד באנגלית, והכתוביות מוצגות בשפה שלך.'
-      :'Speak or write to me in any language. I’ll understand you. My voice is always English, and subtitles appear in your language.';
-  }
+  setLanguageNotice();
   if($('#welcomeReplayBtn'))$('#welcomeReplayBtn').textContent=he?'🔊 השמיעי שוב':'🔊 Replay';
   if($('#welcomeHowBtn'))$('#welcomeHowBtn').textContent=he?'איך זה עובד בפועל?':'How does it work in practice?';
   if($('#welcomeFromAviBtn'))$('#welcomeFromAviBtn').textContent=he?'אבי שלח לי את הקישור':'Avi sent me the link';
@@ -220,7 +284,7 @@ $('#welcomeHowBtn').onclick=()=>{
   const bubble=$('#welcomeHowStep .welcome-bubble');
   if(bubble)bubble.textContent=captionOf(item);
   appendWelcomeTranscript(captionOf(item));
-  speakPair(item);
+  playExtraVoice(SITE_MODE==='adult'?'how_adult':'how_general',item);
 };
 
 $('#welcomeFromAviBtn').onclick=()=>{
@@ -232,7 +296,7 @@ $('#welcomeFromAviBtn').onclick=()=>{
   const bubble=$('#welcomeAviStep .welcome-bubble');
   if(bubble)bubble.textContent=captionOf(item);
   appendWelcomeTranscript(captionOf(item));
-  speakPair(item);
+  playExtraVoice('avi_prompt',item);
   $('#welcomeInitials').focus();
 };
 
@@ -240,6 +304,7 @@ $('#welcomeDoneBtn').onclick=()=>{
   markWelcomeSeen();
   stopWelcomeSpeech();
   closeModal('welcomeMorinModal');
+  setTimeout(()=>$('#nickname')?.focus(),80);
 };
 
 $('#welcomeInitialsBtn').onclick=()=>{
@@ -253,13 +318,19 @@ $('#welcomeInitialsBtn').onclick=()=>{
     const bubble=$('#welcomeAnnetteConfirm .welcome-bubble');
     if(bubble)bubble.textContent=captionOf(item);
     appendWelcomeTranscript(captionOf(item));
-    speakPair(item);
+    playExtraVoice('annette_confirm',item);
   }else if(initials){
     const item=pair(
       'I did not find a personal message for those initials, but the explanation of the site is open to everyone.',
       'לא מצאתי הודעה אישית לפי ראשי התיבות האלה, אבל ההסבר על האתר כמובן פתוח לכולם.'
     );
-    welcomeSay(item);
+    appendWelcomeTranscript(captionOf(item));
+    const root=$('#welcomeMorinChat');
+    const bubble=document.createElement('div');
+    bubble.className='welcome-bubble morin-bubble';
+    bubble.textContent=captionOf(item);
+    root?.append(bubble);
+    playExtraVoice('no_personal_message',item);
   }
 };
 
@@ -291,16 +362,38 @@ $('#welcomeAnnetteYes').onclick=()=>{
   items.forEach((item,index)=>{
     if(bubbles[index])bubbles[index].textContent=captionOf(item);
     appendWelcomeTranscript(captionOf(item));
-    speakPair(item);
   });
+
+  stopWelcomeSpeech();
+  const generation=welcomeAudioGeneration;
+  const keys=['annette_message_1','annette_message_2','annette_message_3'];
+  const playAt=index=>{
+    if(index>=items.length || generation!==welcomeAudioGeneration)return;
+    const item=items[index];
+    const key=keys[index];
+    cachedAudioUrl(`extra:${key}`,`/api/morin/welcome-extra-audio/${key}`)
+      .then(url=>attachAndPlayAudio(url,captionOf(item),{
+        generation,
+        onended:()=>playAt(index+1)
+      }))
+      .catch(()=>playAt(index+1));
+  };
+  playAt(0);
 };
 
 $('#welcomeAnnetteNo').onclick=()=>{
   $('#welcomeAnnetteConfirm').classList.add('hidden');
-  welcomeSay(pair(
+  const item=pair(
     'Then the personal message probably was not meant for you. At least now I know not to identify people from two letters.',
     'אז כנראה שההודעה האישית לא נועדה לך. לפחות עכשיו אני יודעת שלא לנחש אנשים לפי שתי אותיות.'
-  ));
+  );
+  appendWelcomeTranscript(captionOf(item));
+  const root=$('#welcomeMorinChat');
+  const bubble=document.createElement('div');
+  bubble.className='welcome-bubble morin-bubble';
+  bubble.textContent=captionOf(item);
+  root?.append(bubble);
+  playExtraVoice('annette_no',item);
 };
 
 const welcomeCloseBtn=$('#welcomeMorinModal [data-close="welcomeMorinModal"]');
@@ -319,10 +412,9 @@ $('#welcomeMorinModal').addEventListener('click',e=>{
 });
 
 document.addEventListener('pointerdown',()=>{
-  if(!welcomeAutoReplayArmed || !$('#welcomeMorinModal').classList.contains('open'))return;
-  welcomeAutoReplayArmed=false;
-  speakWelcomeSequence();
-},{capture:true,once:false});
+  if(!$('#welcomeMorinModal')?.classList.contains('open'))return;
+  if(welcomeBlockedAudio)resumeBlockedAudio();
+},{capture:true});
 
 function maybeOpenWelcome(){
   if(SITE_MODE==='adult' && !document.body.classList.contains('adult-age-confirmed'))return;

@@ -66,7 +66,7 @@ function applyTrackUI(){
   state.language=FAI18N.active(state.me);
   const adult=SITE_MODE==='adult';
   const he=state.language==='he';
-  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
+  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
   if($('#feedTitle'))$('#feedTitle').textContent=adult
     ?(he?'מה הפנטזיה שלך?':'What is your fantasy?')
@@ -178,8 +178,10 @@ function enterApp(){
   if(typeof refreshMatchUi==='function') refreshMatchUi();
 }
 
-$('#enterBtn').onclick = async () => {
-  $('#gateError').textContent='';
+async function submitRegistration(){
+  const button=$('#enterBtn');
+  const error=$('#gateError');
+  error.textContent='';
   const payload = {
     nickname: $('#nickname').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
     region:$('#region').value.trim(), marital_status:$('#maritalStatus')?.value||'prefer_not_to_say',
@@ -188,13 +190,34 @@ $('#enterBtn').onclick = async () => {
     adult_confirm:SITE_MODE==='adult' ? localStorage.getItem(ADULT_GATE_KEY)==='1' : $('#adultConfirm').checked
   };
   if(!payload.nickname || payload.age < 18 || !payload.gender || !payload.adult_confirm){
-    $('#gateError').textContent='צריך כינוי, גיל 18+, מגדר ואישור גיל.'; return;
+    error.textContent=state.language==='he'
+      ?'צריך כינוי, גיל 18+, מגדר ואישור גיל.'
+      :'Please enter a nickname, age 18+, gender, and confirm your age.';
+    toast(error.textContent);
+    error.scrollIntoView({behavior:'smooth',block:'nearest'});
+    return;
   }
+  button.disabled=true;
+  const previousText=button.textContent;
+  button.textContent=state.language==='he'?'נכנסת…':'Entering…';
   try{
     const result = await api('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    state.token=result.token; state.me=result.identity; localStorage.setItem('faToken',state.token); enterApp();
-  }catch(err){ $('#gateError').textContent=err.message; }
-};
+    state.token=result.token;
+    state.me=result.identity;
+    localStorage.setItem('faToken',state.token);
+    enterApp();
+  }catch(err){
+    error.textContent=err.message;
+    toast(err.message);
+    error.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }finally{
+    button.disabled=false;
+    button.textContent=previousText;
+  }
+}
+
+$('#enterBtn').addEventListener('click',submitRegistration);
+
 
 $('#logoutBtn').onclick=()=>{localStorage.removeItem('faToken'); location.reload();};
 $('#dndBtn').onclick=async()=>{

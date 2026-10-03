@@ -517,6 +517,10 @@ class MorinTranscribeRequest(BaseModel):
     language: str = Field(default="he", min_length=2, max_length=8)
 
 
+class MorinSpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+
+
 def current_identity(authorization: str | None) -> sqlite3.Row:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "נדרשת התחברות")
@@ -2151,6 +2155,119 @@ def report(info: ReportCreate, authorization: str | None = Header(default=None))
     con.commit()
     con.close()
     return {"ok": True, "id": report_id}
+
+
+WELCOME_AUDIO = {
+    "general": [
+        "Hi, I’m Morin.",
+        "Fantasy Accepted is a place where you can share a wish that other people may be able to help you make real.",
+        "Your wish should be something another person can actually help with.",
+        "For example: I want a musician to write a song for my mother.",
+        "Or: I want someone to teach me piano.",
+        "A wish like, I want to win the lottery, doesn’t really fit, because nobody here can control the result.",
+        "You don’t need to know exactly how to make your wish happen.",
+        "Just tell me what you want, and I’ll do my AI magic to help make it happen.",
+        "You can speak or write to me in any language. I’ll understand you. My spoken voice is always in English.",
+        "So, what do you wish for?",
+    ],
+    "adult": [
+        "Hi, I’m Morin.",
+        "Fantasy Accepted eighteen-plus is a place where adults can share a fantasy that other adults may be able to help make real.",
+        "Your fantasy should involve something another person can actually choose to take part in or help with.",
+        "Tell me what you want in your own words. I can help clarify the people, roles and details that matter.",
+        "You can speak or write to me in any language. I’ll understand you. My spoken voice is always in English.",
+        "Nothing is published until you review it.",
+        "So, what do you wish for?",
+    ],
+}
+WELCOME_EXTRA_AUDIO = {
+    "how_general": "For example, you can say: I want someone to sing a song to my ex. I can understand that you are organizing the wish, identify the performer as the missing person, and ask only the questions that actually affect the match.",
+    "how_adult": "For example, tell me the fantasy in your own words. I can identify the people or roles that are missing, ask only the questions that affect the match, and prepare a draft for you to review before anything is published.",
+    "avi_prompt": "Avi may have left a personal message for you. What are the initials of your name?",
+    "annette_confirm": "Just to make sure, are you Annette Smirnoff?",
+    "no_personal_message": "I did not find a personal message for those initials, but the explanation of the site is open to everyone.",
+    "annette_message_1": "Annette, Avi asked me to tell you something personal. Behind the unusual choices you see here is a long-term entrepreneurial vision, not just another website.",
+    "annette_message_2": "He is working on several ideas that he believes could change entire fields, including scent technology for movies and virtual reality, and the E L project for products designed to last an extremely long time.",
+    "annette_message_3": "He also thinks a lot about the economic impact of artificial intelligence and ways to reduce the cost of living and give people more security and meaning. He asked me to tell you that his ambitions are much bigger than his current situation, and that is exactly the gap he intends to close.",
+    "annette_no": "Then the personal message probably was not meant for you. At least now I know not to identify people from two letters.",
+}
+_TTS_CACHE: dict[str, bytes] = {}
+
+
+async def gateway_speech(text: str) -> bytes:
+    gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
+    gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
+    if not gateway_url or not gateway_token:
+        raise HTTPException(503, "OpenAI speech is not connected to the site")
+
+    cache_key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    cached = _TTS_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    async with httpx.AsyncClient(timeout=80) as client:
+        response = await client.post(
+            f"{gateway_url}/speak",
+            headers={
+                "Authorization": f"Bearer {gateway_token}",
+                "Content-Type": "application/json",
+            },
+            json={"text": text},
+        )
+    if response.status_code >= 400:
+        raise HTTPException(502, "Morin's OpenAI voice is temporarily unavailable")
+
+    audio = response.content
+    if len(_TTS_CACHE) >= 64:
+        _TTS_CACHE.pop(next(iter(_TTS_CACHE)))
+    _TTS_CACHE[cache_key] = audio
+    return audio
+
+
+@app.get("/api/morin/welcome-audio/{segment_index}")
+async def morin_welcome_audio(segment_index: int):
+    lines = WELCOME_AUDIO[current_site_mode()]
+    if segment_index < 0 or segment_index >= len(lines):
+        raise HTTPException(404, "Voice segment not found")
+    audio = await gateway_speech(lines[segment_index])
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/api/morin/welcome-extra-audio/{audio_key}")
+async def morin_welcome_extra_audio(audio_key: str):
+    text = WELCOME_EXTRA_AUDIO.get(audio_key)
+    if not text:
+        raise HTTPException(404, "Voice segment not found")
+    audio = await gateway_speech(text)
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.post("/api/morin/speak")
+async def morin_speak(info: MorinSpeakRequest, authorization: str | None = Header(default=None)):
+    current_identity(authorization)
+    audio = await gateway_speech(info.text.strip())
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post("/api/morin/transcribe")

@@ -13,6 +13,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: PYTHONPATH=. pytest -q
+      - run: python -m py_compile app.py morin_gateway.py storage.py
       - run: node --check static/i18n.js
       - run: node --check static/core.js
       - run: node --check static/media.js

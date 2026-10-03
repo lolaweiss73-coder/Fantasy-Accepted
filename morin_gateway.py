@@ -6,6 +6,7 @@ import re
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import Response
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,12 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-sol")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPEN_ROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MORIN_MODEL", "openai/gpt-5.6")
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "marin")
+OPENAI_TTS_INSTRUCTIONS = os.environ.get(
+    "OPENAI_TTS_INSTRUCTIONS",
+    "Speak as a warm, intelligent, confident adult woman. Natural conversational English, clear diction, gentle energy, subtle smile, no announcer voice, no exaggerated drama, medium pace."
+)
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 MINOR_TERM_PATTERN = re.compile(
@@ -63,6 +70,10 @@ class TranscriptionRequest(BaseModel):
     audio_base64: str = Field(min_length=100, max_length=20_000_000)
     format: str = Field(default="webm", pattern="^(webm|ogg|wav|mp3|m4a|aac|flac)$")
     language: str = Field(default="he", min_length=2, max_length=8)
+
+
+class SpeechRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
 
 
 def require_service_token(authorization: str | None) -> None:
@@ -187,6 +198,8 @@ async def health():
         "ok": bool(SERVICE_TOKEN and providers),
         "model": OPENAI_MODEL if openai_client else OPENROUTER_MODEL,
         "providers": providers,
+        "tts_model": OPENAI_TTS_MODEL if OPENAI_API_KEY else None,
+        "tts_voice": OPENAI_TTS_VOICE if OPENAI_API_KEY else None,
     }
 
 
@@ -225,6 +238,41 @@ async def transcribe(info: TranscriptionRequest, authorization: str | None = Hea
     if not transcript:
         raise HTTPException(502, "Transcription provider returned no text")
     return {"text": transcript}
+
+
+@app.post("/speak")
+async def speak(info: SpeechRequest, authorization: str | None = Header(default=None)):
+    require_service_token(authorization)
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, "OpenAI speech is not configured")
+
+    async with httpx.AsyncClient(timeout=75) as client:
+        response = await client.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": OPENAI_TTS_MODEL,
+                "voice": OPENAI_TTS_VOICE,
+                "input": info.text,
+                "instructions": OPENAI_TTS_INSTRUCTIONS,
+                "response_format": "mp3",
+            },
+        )
+    if response.status_code >= 400:
+        print("Morin TTS failure:", response.status_code, response.text[:300])
+        raise HTTPException(502, "OpenAI speech is temporarily unavailable")
+
+    return Response(
+        content=response.content,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post("/structure")

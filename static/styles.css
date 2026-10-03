@@ -172,3 +172,172 @@ body[data-site-mode="adult"] #generalAgeConfirm{display:none!important}
   .adult-age-card{border-radius:24px 24px 0 0;padding:24px 18px}
   .adult-age-card h1{font-size:29px}
 }
+
+
+/* --- v0.4 voice, subtitles and media --- */
+.morin-subtitles{
+  position:fixed;
+  left:50%;
+  bottom:max(18px,env(safe-area-inset-bottom));
+  z-index:1200;
+  transform:translateX(-50%);
+  width:min(760px,calc(100vw - 28px));
+  padding:11px 16px 13px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:16px;
+  background:rgba(7,5,11,.92);
+  box-shadow:0 14px 45px rgba(0,0,0,.45);
+  backdrop-filter:blur(12px);
+  text-align:center;
+  pointer-events:none;
+}
+.morin-subtitle-speaker{
+  margin-bottom:4px;
+  color:#ff95bd;
+  font-size:10px;
+  font-weight:950;
+  letter-spacing:.13em;
+}
+.morin-subtitle-text{
+  color:#fff;
+  font-size:16px;
+  font-weight:750;
+  line-height:1.48;
+  text-wrap:balance;
+}
+
+.photo-upload-block,
+.profile-photo-manager{
+  margin:16px 0;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:rgba(255,255,255,.018);
+}
+.photo-hint{margin:-4px 0 10px;font-size:12px;line-height:1.55}
+.photo-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(128px,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.photo-grid.compact{grid-template-columns:repeat(auto-fill,minmax(92px,120px))}
+.photo-tile{
+  position:relative;
+  min-width:0;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#0c0911;
+}
+.photo-tile img{
+  display:block;
+  width:100%;
+  aspect-ratio:1/1;
+  object-fit:cover;
+  background:#0c0911;
+}
+.photo-tile.preview img{aspect-ratio:4/3}
+.photo-tile.managed{overflow:visible;background:#120e19}
+.photo-tile.managed img{border-radius:13px 13px 0 0}
+.photo-controls{
+  display:flex;
+  gap:6px;
+  align-items:center;
+  padding:8px;
+  background:#120e19;
+  border-radius:0 0 13px 13px;
+}
+.photo-controls select{min-width:0;flex:1;margin:0!important;padding:7px!important;font-size:11px}
+.photo-controls button{flex:0 0 auto;padding:7px 9px;font-size:11px}
+.profile-photo-upload{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 150px auto;
+  gap:8px;
+  align-items:center;
+}
+.profile-photo-upload input,
+.profile-photo-upload select{margin:0!important}
+.wish-card-photo{
+  margin:12px 0;
+  overflow:hidden;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:#0d0912;
+}
+.wish-card-photo img{
+  display:block;
+  width:100%;
+  max-height:280px;
+  aspect-ratio:16/10;
+  object-fit:cover;
+}
+.wish-detail-photos{
+  grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  margin:15px 0;
+}
+.wish-detail-photos .photo-tile img{aspect-ratio:4/3}
+.photo-delete{
+  position:absolute;
+  top:7px;
+  left:7px;
+  z-index:2;
+  padding:6px 8px!important;
+  background:rgba(8,5,12,.86)!important;
+}
+.profile-public-grid{
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  padding:8px 0 2px;
+  margin:8px 0 14px;
+}
+.profile-public-grid .photo-tile{
+  flex:0 0 84px;
+  width:84px;
+}
+.photo-privacy-badge{
+  position:absolute;
+  right:6px;
+  bottom:6px;
+  padding:4px 6px;
+  border-radius:999px;
+  background:rgba(8,5,12,.88);
+  color:#fff;
+  font-size:10px;
+  font-weight:800;
+}
+.photo-loading{opacity:.45;filter:saturate(.65)}
+.photo-empty{grid-column:1/-1}
+#fantasyPhotos,#profilePhotoInput{color:var(--muted)}
+
+/* The page may switch to LTR for English while content remains the same app. */
+html[dir="ltr"] body{direction:ltr}
+html[dir="ltr"] .track-choice,
+html[dir="ltr"] .notification-item,
+html[dir="ltr"] .admin-data-row,
+html[dir="ltr"] .admin-announcement-row,
+html[dir="ltr"] .adult-age-declaration{text-align:left;direction:ltr}
+html[dir="ltr"] .sidebar{right:auto;left:0;border-left:0;border-right:1px solid var(--line)}
+html[dir="ltr"] .message.mine{align-self:flex-end}
+html[dir="ltr"] .photo-delete{left:auto;right:7px}
+html[dir="ltr"] .close-btn{left:auto;right:12px}
+html[dir="ltr"] .announcement-bar,
+html[dir="ltr"] .announcement-track,
+html[dir="ltr"] .announcement-set{direction:ltr}
+
+@media(max-width:700px){
+  .morin-subtitles{
+    bottom:max(10px,env(safe-area-inset-bottom));
+    width:calc(100vw - 18px);
+    padding:10px 12px 12px;
+  }
+  .morin-subtitle-text{font-size:15px}
+  .profile-photo-upload{grid-template-columns:1fr}
+  .profile-photo-upload button{width:100%}
+  .photo-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .photo-grid.compact{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .wish-detail-photos{grid-template-columns:repeat(2,minmax(0,1fr))}
+  html[dir="ltr"] .sidebar{transform:translateX(-105%)}
+  html[dir="ltr"] .sidebar.open{transform:translateX(0)}
+}

@@ -341,3 +341,66 @@ html[dir="ltr"] .announcement-set{direction:ltr}
   html[dir="ltr"] .sidebar{transform:translateX(-105%)}
   html[dir="ltr"] .sidebar.open{transform:translateX(0)}
 }
+
+
+/* --- stable account identity and recovery --- */
+.account-recover-panel{
+  margin-top:14px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(255,255,255,.018);
+}
+.account-recover-panel summary{
+  cursor:pointer;
+  font-weight:800;
+}
+.account-recover-panel[open] summary{margin-bottom:10px}
+.account-identity-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin:14px 0 18px;
+  padding:14px 16px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:rgba(255,255,255,.02);
+}
+.account-identity-card h3{
+  margin:3px 0 5px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  letter-spacing:.04em;
+}
+.copy-field{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:center;
+}
+.copy-field input{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  letter-spacing:.035em;
+}
+.recovery-card{max-width:640px}
+.recovery-warning{
+  margin:8px 0 14px;
+  padding:10px 12px;
+  border-radius:12px;
+  background:rgba(255,184,77,.08);
+  border:1px solid rgba(255,184,77,.18);
+  line-height:1.55;
+  font-size:13px;
+}
+#recoveryNotConfigured{
+  margin:12px 0;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+@media(max-width:700px){
+  .account-identity-card{align-items:flex-start;flex-direction:column}
+  .account-identity-card button{width:100%}
+  .copy-field{grid-template-columns:1fr}
+  .copy-field button{width:100%}
+}

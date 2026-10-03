@@ -47,7 +47,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.4.0")
+app = FastAPI(title="Fantasy Accepted", version="0.4.1")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -84,6 +84,31 @@ def uid() -> str:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+ACCOUNT_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def new_account_id() -> str:
+    return "FA-" + "".join(secrets.choice(ACCOUNT_ID_ALPHABET) for _ in range(10))
+
+
+def new_recovery_code() -> str:
+    raw = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(24))
+    return "-".join(raw[i:i + 4] for i in range(0, len(raw), 4))
+
+
+def normalize_recovery_code(value: str) -> str:
+    return re.sub(r"[^A-Z2-9]", "", (value or "").upper())
+
+
+def recovery_hash(value: str) -> str:
+    return hashlib.sha256(normalize_recovery_code(value).encode("utf-8")).hexdigest()
+
+
+def new_session_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 def json_dump(value: Any) -> str:
@@ -145,6 +170,9 @@ def init_db() -> None:
             adult_discovery INTEGER NOT NULL DEFAULT 0,
             suspended INTEGER NOT NULL DEFAULT 0,
             preferred_language TEXT NOT NULL DEFAULT 'auto',
+            account_id TEXT UNIQUE,
+            recovery_hash TEXT,
+            recovery_created_at REAL,
             created_at REAL NOT NULL
         );
 
@@ -275,6 +303,15 @@ def init_db() -> None:
             PRIMARY KEY(fantasy_id, identity_id)
         );
 
+        CREATE TABLE IF NOT EXISTS account_sessions (
+            id TEXT PRIMARY KEY,
+            identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            token_hash TEXT UNIQUE NOT NULL,
+            created_at REAL NOT NULL,
+            last_seen_at REAL NOT NULL,
+            revoked_at REAL
+        );
+
         CREATE TABLE IF NOT EXISTS photos (
             id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -299,6 +336,7 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_fulfillment_fantasy ON fulfillment_confirmations(fantasy_id, confirmed_at);
         CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_id, purpose, site_mode, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_photos_fantasy ON photos(fantasy_id, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_account_sessions_identity ON account_sessions(identity_id, revoked_at, created_at DESC);
         """
     )
 
@@ -330,6 +368,9 @@ def init_db() -> None:
         ("adult_discovery", "INTEGER NOT NULL DEFAULT 0"),
         ("suspended", "INTEGER NOT NULL DEFAULT 0"),
         ("preferred_language", "TEXT NOT NULL DEFAULT 'auto'"),
+        ("account_id", "TEXT"),
+        ("recovery_hash", "TEXT"),
+        ("recovery_created_at", "REAL"),
     ]
     for column_name, column_sql in identity_columns:
         if getattr(con, "postgres", False):
@@ -341,6 +382,27 @@ def init_db() -> None:
             exists = any(row["name"] == column_name for row in con.execute("PRAGMA table_info(identities)").fetchall())
         if not exists:
             con.execute(f"ALTER TABLE identities ADD COLUMN {column_name} {column_sql}")
+
+
+    # Stable account identity. Existing anonymous users keep their current UUID,
+    # receive a public account id, and can opt into a recovery key without losing data.
+    missing_account_ids = con.execute(
+        "SELECT id FROM identities WHERE account_id IS NULL OR account_id=''"
+    ).fetchall()
+    for identity_row in missing_account_ids:
+        while True:
+            candidate = new_account_id()
+            if con.execute("SELECT 1 FROM identities WHERE account_id=?", (candidate,)).fetchone():
+                continue
+            con.execute(
+                "UPDATE identities SET account_id=? WHERE id=?",
+                (candidate, identity_row["id"]),
+            )
+            break
+    try:
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_account_id ON identities(account_id)")
+    except Exception:
+        pass
 
     # Keep conversations and notifications isolated between the two public sites.
     scoped_columns = [
@@ -412,6 +474,11 @@ class SessionCreate(BaseModel):
     relationship_status: str = Field(default="prefer_not_to_say", max_length=40)
     preferred_language: str = Field(default="auto", min_length=2, max_length=16)
     adult_confirm: bool
+
+
+class SessionRecover(BaseModel):
+    account_id: str = Field(min_length=5, max_length=32)
+    recovery_code: str = Field(min_length=12, max_length=64)
 
 
 class ProfileUpdate(BaseModel):
@@ -525,8 +592,22 @@ def current_identity(authorization: str | None) -> sqlite3.Row:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "נדרשת התחברות")
     token = authorization.removeprefix("Bearer ").strip()
+    digest = token_hash(token)
     con = db()
-    row = con.execute("SELECT * FROM identities WHERE token_hash=?", (token_hash(token),)).fetchone()
+    row = con.execute("SELECT * FROM identities WHERE token_hash=?", (digest,)).fetchone()
+    if not row:
+        session = con.execute(
+            "SELECT identity_id,id FROM account_sessions WHERE token_hash=? AND revoked_at IS NULL",
+            (digest,),
+        ).fetchone()
+        if session:
+            row = con.execute("SELECT * FROM identities WHERE id=?", (session["identity_id"],)).fetchone()
+            if row:
+                con.execute(
+                    "UPDATE account_sessions SET last_seen_at=? WHERE id=?",
+                    (now(), session["id"]),
+                )
+                con.commit()
     con.close()
     if not row:
         raise HTTPException(401, "ההתחברות אינה תקפה")
@@ -636,6 +717,8 @@ def identity_public(row: sqlite3.Row) -> dict[str, Any]:
         "bio": row["bio"] if "bio" in keys else "",
         "adult_discovery": bool(row["adult_discovery"]) if "adult_discovery" in keys else False,
         "preferred_language": row["preferred_language"] if "preferred_language" in keys else "auto",
+        "account_id": row["account_id"] if "account_id" in keys else "",
+        "public_tag": ("#" + str(row["account_id"])[-6:]) if "account_id" in keys and row["account_id"] else "",
     }
 
 
@@ -1072,7 +1155,7 @@ def health():
     return {
         "ok": True,
         "service": "Fantasy Accepted",
-        "version": "0.4.0",
+        "version": "0.4.1",
         "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
@@ -1084,11 +1167,20 @@ def health():
 def create_session(info: SessionCreate):
     if not info.adult_confirm:
         raise HTTPException(400, "יש לאשר שכל המשתתפים באתר הם בני 18 ומעלה")
-    token = secrets.token_urlsafe(32)
+    token = new_session_token()
+    recovery_code = new_recovery_code()
     identity_id = uid()
     con = db()
+
+    account_id = ""
+    while not account_id:
+        candidate = new_account_id()
+        if not con.execute("SELECT 1 FROM identities WHERE account_id=?", (candidate,)).fetchone():
+            account_id = candidate
+
+    ts = now()
     con.execute(
-        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,account_id,recovery_hash,recovery_created_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             identity_id,
             token_hash(token),
@@ -1099,18 +1191,83 @@ def create_session(info: SessionCreate):
             info.marital_status,
             info.relationship_status,
             info.preferred_language.strip().lower(),
-            now(),
+            account_id,
+            recovery_hash(recovery_code),
+            ts,
+            ts,
         ),
+    )
+    con.execute(
+        "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
+        (uid(), identity_id, token_hash(token), ts, ts),
     )
     con.commit()
     row = con.execute("SELECT * FROM identities WHERE id=?", (identity_id,)).fetchone()
     con.close()
-    return {"token": token, "identity": identity_public(row)}
+    return {
+        "token": token,
+        "identity": identity_public(row),
+        "recovery_code": recovery_code,
+        "recovery_code_shown_once": True,
+    }
+
+
+@app.post("/api/session/recover")
+def recover_session(info: SessionRecover):
+    account_id = info.account_id.strip().upper()
+    provided_hash = recovery_hash(info.recovery_code)
+    con = db()
+    row = con.execute("SELECT * FROM identities WHERE UPPER(account_id)=?", (account_id,)).fetchone()
+    if not row or not row["recovery_hash"] or not secrets.compare_digest(str(row["recovery_hash"]), provided_hash):
+        con.close()
+        raise HTTPException(401, "פרטי השחזור אינם תקינים")
+
+    token = new_session_token()
+    ts = now()
+    con.execute(
+        "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
+        (uid(), row["id"], token_hash(token), ts, ts),
+    )
+    con.commit()
+    con.close()
+    return {"token": token, "identity": identity_public(row), "recovered": True}
 
 
 @app.get("/api/me")
 def me(authorization: str | None = Header(default=None)):
     return identity_public(current_identity(authorization))
+
+
+@app.get("/api/me/recovery-status")
+def recovery_status(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    keys = set(person.keys())
+    return {
+        "account_id": person["account_id"] if "account_id" in keys else "",
+        "configured": bool(person["recovery_hash"]) if "recovery_hash" in keys else False,
+        "recovery_created_at": person["recovery_created_at"] if "recovery_created_at" in keys else None,
+    }
+
+
+@app.post("/api/me/recovery-key")
+def rotate_recovery_key(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    code = new_recovery_code()
+    ts = now()
+    con = db()
+    con.execute(
+        "UPDATE identities SET recovery_hash=?,recovery_created_at=? WHERE id=?",
+        (recovery_hash(code), ts, person["id"]),
+    )
+    con.commit()
+    row = con.execute("SELECT * FROM identities WHERE id=?", (person["id"],)).fetchone()
+    con.close()
+    return {
+        "account_id": row["account_id"],
+        "recovery_code": code,
+        "recovery_code_shown_once": True,
+        "recovery_created_at": ts,
+    }
 
 
 @app.get("/api/me/activity-summary")
@@ -1632,7 +1789,7 @@ def list_applications(fantasy_id: str, authorization: str | None = Header(defaul
         raise HTTPException(403, "רק מפרסם/ת המשאלה או הפנטזיה יכול/ה לראות מועמדויות")
     rows = con.execute(
         """
-        SELECT a.*, i.nickname, i.age, i.gender, i.region, r.name AS role_name
+        SELECT a.*, i.nickname, i.account_id, i.age, i.gender, i.region, r.name AS role_name
         FROM applications a
         JOIN identities i ON i.id=a.applicant_id
         JOIN roles r ON r.id=a.role_id
@@ -2012,6 +2169,7 @@ def admin_users(
         item = {
             "id": row["id"],
             "nickname": row["nickname"],
+            "account_id": row["account_id"] if "account_id" in set(row.keys()) else "",
             "age": row["age"],
             "gender": row["gender"],
             "region": row["region"],

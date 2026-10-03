@@ -969,3 +969,120 @@ def test_onboarding_no_longer_uses_browser_speech_synthesis():
     assert "speechSynthesis" not in source
     assert "/api/morin/welcome-audio/" in source
     assert "new Audio(" in source
+
+
+def test_stable_account_recovery_restores_same_identity_on_second_device():
+    app_module.SITE_MODE = "general"
+    created = client.post(
+        "/api/session",
+        json={
+            "nickname": "same-person",
+            "age": 39,
+            "gender": "male",
+            "region": "center",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "preferred_language": "he",
+            "adult_confirm": True,
+        },
+    )
+    assert created.status_code == 200, created.text
+    payload = created.json()
+    account_id = payload["identity"]["account_id"]
+    recovery_code = payload["recovery_code"]
+    original_id = payload["identity"]["id"]
+    original_headers = {"Authorization": f"Bearer {payload['token']}"}
+
+    recovered = client.post(
+        "/api/session/recover",
+        json={"account_id": account_id.lower(), "recovery_code": recovery_code.lower()},
+    )
+    assert recovered.status_code == 200, recovered.text
+    recovered_payload = recovered.json()
+    assert recovered_payload["identity"]["id"] == original_id
+    assert recovered_payload["identity"]["account_id"] == account_id
+    recovered_headers = {"Authorization": f"Bearer {recovered_payload['token']}"}
+
+    # Recovery adds a second valid device session instead of logging out the first.
+    assert client.get("/api/me", headers=original_headers).json()["id"] == original_id
+    assert client.get("/api/me", headers=recovered_headers).json()["id"] == original_id
+
+
+def test_duplicate_nicknames_get_distinct_stable_account_ids():
+    app_module.SITE_MODE = "general"
+    first, _ = join("duplicate-name", 32, "female")
+    second, _ = join("duplicate-name", 34, "male")
+    assert first["identity"]["nickname"] == second["identity"]["nickname"]
+    assert first["identity"]["id"] != second["identity"]["id"]
+    assert first["identity"]["account_id"] != second["identity"]["account_id"]
+    assert first["identity"]["public_tag"] != second["identity"]["public_tag"]
+
+
+def test_recovery_key_rotation_invalidates_old_key_but_not_existing_session():
+    app_module.SITE_MODE = "general"
+    created = client.post(
+        "/api/session",
+        json={
+            "nickname": "rotate-key",
+            "age": 41,
+            "gender": "female",
+            "region": "",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "preferred_language": "en",
+            "adult_confirm": True,
+        },
+    ).json()
+    headers = {"Authorization": f"Bearer {created['token']}"}
+    account_id = created["identity"]["account_id"]
+    old_code = created["recovery_code"]
+
+    rotated = client.post("/api/me/recovery-key", headers=headers)
+    assert rotated.status_code == 200, rotated.text
+    new_code = rotated.json()["recovery_code"]
+    assert new_code != old_code
+
+    old_attempt = client.post(
+        "/api/session/recover",
+        json={"account_id": account_id, "recovery_code": old_code},
+    )
+    assert old_attempt.status_code == 401
+
+    new_attempt = client.post(
+        "/api/session/recover",
+        json={"account_id": account_id, "recovery_code": new_code},
+    )
+    assert new_attempt.status_code == 200
+    assert new_attempt.json()["identity"]["id"] == created["identity"]["id"]
+
+    # Rotating a recovery key does not revoke an already-open device.
+    assert client.get("/api/me", headers=headers).status_code == 200
+
+
+def test_invalid_recovery_details_do_not_reveal_account_access():
+    app_module.SITE_MODE = "general"
+    created, _ = join("recover-invalid", 36, "male")
+    response = client.post(
+        "/api/session/recover",
+        json={
+            "account_id": created["identity"]["account_id"],
+            "recovery_code": "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_account_recovery_controls_are_present_in_template_and_frontend():
+    app_module.SITE_MODE = "general"
+    page = client.get("/")
+    assert page.status_code == 200
+    html = page.text
+    assert 'id="recoverAccountId"' in html
+    assert 'id="recoverCode"' in html
+    assert 'id="accountRecoveryModal"' in html
+    assert 'id="profileAccountId"' in html
+
+    core = (Path(__file__).resolve().parents[1] / "static" / "core.js").read_text(encoding="utf-8")
+    assert "/api/session/recover" in core
+    assert "/api/me/recovery-key" in core
+    assert "identityLabel" in core

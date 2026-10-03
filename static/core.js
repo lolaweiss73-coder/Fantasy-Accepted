@@ -39,6 +39,51 @@ function toast(message) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 function authHeaders(extra={}) { return state.token ? {Authorization:`Bearer ${state.token}`,...extra} : extra; }
+
+function identityLabel(person){
+  if(!person)return '';
+  return [person.nickname,person.public_tag].filter(Boolean).join(' · ');
+}
+
+function recoveryCopy(text){
+  if(!text)return Promise.resolve(false);
+  if(navigator.clipboard?.writeText){
+    return navigator.clipboard.writeText(text).then(()=>true).catch(()=>false);
+  }
+  return Promise.resolve(false);
+}
+
+function openRecoveryModal({accountId='',code='',configured=true}={}){
+  if($('#recoveryAccountIdDisplay'))$('#recoveryAccountIdDisplay').value=accountId||state.me?.account_id||'';
+  if($('#recoveryCodeDisplay'))$('#recoveryCodeDisplay').value=code||'';
+  $('#recoveryCodeWrap')?.classList.toggle('hidden',!code);
+  $('#recoveryNotConfigured')?.classList.toggle('hidden',Boolean(code));
+  if($('#recoveryGenerateText')){
+    $('#recoveryGenerateText').textContent=configured
+      ?(state.language==='he'?'מפתח קיים לא ניתן להצגה מחדש. אם הוא אבד, אפשר ליצור מפתח חדש; הישן יפסיק לעבוד.':'An existing recovery key cannot be shown again. If it was lost, create a new one; the old key will stop working.')
+      :(state.language==='he'?'לחשבון הזה עדיין אין מפתח שחזור. כדאי ליצור אחד עכשיו כדי שלא תהיה תלוי בדפדפן הנוכחי.':'This account does not have a recovery key yet. Create one now so this browser is not your only way back in.');
+  }
+  if($('#generateRecoveryCodeBtn')){
+    $('#generateRecoveryCodeBtn').textContent=configured
+      ?(state.language==='he'?'יצירת מפתח חדש':'Create a new recovery key')
+      :(state.language==='he'?'יצירת מפתח שחזור':'Create recovery key');
+  }
+  if($('#accountRecoveryStatus'))$('#accountRecoveryStatus').textContent='';
+  openModal('accountRecoveryModal');
+}
+
+async function loadRecoveryStatus({open=false,promptIfMissing=false}={}){
+  if(!state.token)return null;
+  try{
+    const status=await api('/api/me/recovery-status');
+    if(open || (promptIfMissing && !status.configured)){
+      openRecoveryModal({accountId:status.account_id,configured:status.configured});
+    }
+    return status;
+  }catch{
+    return null;
+  }
+}
 async function api(path, options={}) {
   const requestPath = path.startsWith('/api/') ? `${API_BASE}${path}` : path;
   const response = await fetch(requestPath, {...options, headers: authHeaders(options.headers || {})});
@@ -171,11 +216,12 @@ function enterApp(){
   $('#logoutBtn').classList.remove('hidden'); $('#dndBtn').classList.remove('hidden'); $('#meBadge').classList.remove('hidden');
   if($('#profileBtn'))$('#profileBtn').classList.remove('hidden');
   if($('#notificationsBtn'))$('#notificationsBtn').classList.remove('hidden');
-  $('#meBadge').textContent = `${state.me.nickname} · ${state.me.age}`;
+  $('#meBadge').textContent = `${identityLabel(state.me)} · ${state.me.age}`;
   $('#dndBtn').textContent = `בהפסקה: ${state.me.dnd ? 'פעיל' : 'כבוי'}`;
   applyTrackUI();
   loadFeed();
   if(typeof refreshMatchUi==='function') refreshMatchUi();
+  setTimeout(()=>loadRecoveryStatus({promptIfMissing:true}),250);
 }
 
 async function submitRegistration(){
@@ -206,6 +252,13 @@ async function submitRegistration(){
     state.me=result.identity;
     localStorage.setItem('faToken',state.token);
     enterApp();
+    if(result.recovery_code){
+      setTimeout(()=>openRecoveryModal({
+        accountId:result.identity.account_id,
+        code:result.recovery_code,
+        configured:true
+      }),120);
+    }
   }catch(err){
     error.textContent=err.message;
     toast(err.message);
@@ -218,6 +271,63 @@ async function submitRegistration(){
 
 $('#enterBtn').addEventListener('click',submitRegistration);
 
+
+$('#recoverAccountBtn')?.addEventListener('click',async()=>{
+  const button=$('#recoverAccountBtn');
+  const status=$('#recoverAccountStatus');
+  const accountId=$('#recoverAccountId').value.trim();
+  const code=$('#recoverCode').value.trim();
+  status.textContent='';
+  if(!accountId || !code){
+    status.textContent=state.language==='he'?'צריך מזהה חשבון ומפתח שחזור.':'Enter the account ID and recovery key.';
+    return;
+  }
+  button.disabled=true;
+  const previous=button.textContent;
+  button.textContent=state.language==='he'?'משחזרת…':'Recovering…';
+  try{
+    const result=await api('/api/session/recover',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({account_id:accountId,recovery_code:code})
+    });
+    state.token=result.token;
+    state.me=result.identity;
+    localStorage.setItem('faToken',state.token);
+    enterApp();
+    toast(state.language==='he'?'החשבון שוחזר במכשיר הזה.':'Account restored on this device.');
+  }catch(err){
+    status.textContent=err.message;
+  }finally{
+    button.disabled=false;
+    button.textContent=previous;
+  }
+});
+
+$('#copyAccountIdBtn')?.addEventListener('click',async()=>{
+  const ok=await recoveryCopy($('#recoveryAccountIdDisplay')?.value||'');
+  toast(ok?(state.language==='he'?'מזהה החשבון הועתק.':'Account ID copied.'):(state.language==='he'?'לא הצלחתי להעתיק אוטומטית.':'Automatic copy failed.'));
+});
+
+$('#copyRecoveryCodeBtn')?.addEventListener('click',async()=>{
+  const ok=await recoveryCopy($('#recoveryCodeDisplay')?.value||'');
+  toast(ok?(state.language==='he'?'מפתח השחזור הועתק.':'Recovery key copied.'):(state.language==='he'?'לא הצלחתי להעתיק אוטומטית.':'Automatic copy failed.'));
+});
+
+$('#generateRecoveryCodeBtn')?.addEventListener('click',async()=>{
+  const button=$('#generateRecoveryCodeBtn');
+  button.disabled=true;
+  try{
+    const result=await api('/api/me/recovery-key',{method:'POST'});
+    openRecoveryModal({accountId:result.account_id,code:result.recovery_code,configured:true});
+  }catch(err){
+    $('#accountRecoveryStatus').textContent=err.message;
+  }finally{
+    button.disabled=false;
+  }
+});
+
+$('#recoveryDoneBtn')?.addEventListener('click',()=>closeModal('accountRecoveryModal'));
 
 $('#logoutBtn').onclick=()=>{localStorage.removeItem('faToken'); location.reload();};
 $('#dndBtn').onclick=async()=>{

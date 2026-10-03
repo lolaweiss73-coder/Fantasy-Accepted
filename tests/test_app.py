@@ -1086,3 +1086,147 @@ def test_account_recovery_controls_are_present_in_template_and_frontend():
     assert "/api/session/recover" in core
     assert "/api/me/recovery-key" in core
     assert "identityLabel" in core
+
+
+def test_security_audit_registration_records_ip_and_account():
+    app_module.SITE_MODE = "general"
+    response = client.post(
+        "/api/session",
+        headers={"X-Forwarded-For": "198.51.100.24"},
+        json={
+            "nickname": "audit-register",
+            "age": 37,
+            "gender": "female",
+            "region": "center",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "preferred_language": "he",
+            "adult_confirm": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    account_id = response.json()["identity"]["account_id"]
+
+    con = app_module.db()
+    row = con.execute(
+        "SELECT * FROM security_audit_log WHERE event_type='account_register' AND account_id=? ORDER BY occurred_at DESC LIMIT 1",
+        (account_id,),
+    ).fetchone()
+    con.close()
+    assert row is not None
+    assert row["result"] == "success"
+    assert row["ip_address"] == "198.51.100.24"
+    assert row["session_id"]
+    assert row["retention_until"] - row["occurred_at"] >= 760 * 24 * 60 * 60 - 1
+
+
+def test_security_audit_failed_recovery_records_denied_without_secret():
+    app_module.SITE_MODE = "general"
+    created = client.post(
+        "/api/session",
+        json={
+            "nickname": "audit-recover",
+            "age": 40,
+            "gender": "male",
+            "region": "",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "preferred_language": "en",
+            "adult_confirm": True,
+        },
+    ).json()
+    account_id = created["identity"]["account_id"]
+    bad_code = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"
+
+    response = client.post(
+        "/api/session/recover",
+        headers={"X-Forwarded-For": "203.0.113.77"},
+        json={"account_id": account_id, "recovery_code": bad_code},
+    )
+    assert response.status_code == 401
+
+    con = app_module.db()
+    row = con.execute(
+        "SELECT * FROM security_audit_log WHERE event_type='account_recover' AND account_id=? ORDER BY occurred_at DESC LIMIT 1",
+        (account_id,),
+    ).fetchone()
+    con.close()
+    assert row is not None
+    assert row["result"] == "denied"
+    assert row["ip_address"] == "203.0.113.77"
+    assert bad_code not in row["metadata"]
+
+
+def test_security_audit_profile_update_links_account_and_session():
+    app_module.SITE_MODE = "general"
+    created, headers = join("audit-profile", 35, "female")
+    response = client.put(
+        "/api/me/profile",
+        headers={**headers, "X-Forwarded-For": "192.0.2.44"},
+        json={
+            "region": "north",
+            "marital_status": "prefer_not_to_say",
+            "relationship_status": "prefer_not_to_say",
+            "skills": ["piano"],
+            "availability": "evenings",
+            "travel_radius_km": 10,
+            "bio": "audit profile",
+            "adult_discovery": False,
+            "preferred_language": "he",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    con = app_module.db()
+    row = con.execute(
+        "SELECT * FROM security_audit_log WHERE event_type='profile_update' AND account_id=? ORDER BY occurred_at DESC LIMIT 1",
+        (created["identity"]["account_id"],),
+    ).fetchone()
+    con.close()
+    assert row is not None
+    assert row["result"] == "success"
+    assert row["identity_id"] == created["identity"]["id"]
+    assert row["session_id"]
+    assert row["ip_address"] == "192.0.2.44"
+
+
+def test_security_audit_prunes_expired_records():
+    con = app_module.db()
+    old_id = app_module.uid()
+    ts = app_module.now() - 100
+    con.execute(
+        """
+        INSERT INTO security_audit_log
+        (id,occurred_at,account_id,identity_id,session_id,event_type,result,site_mode,ip_address,user_agent_hash,path,method,target_type,target_id,metadata,retention_until)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            old_id, ts, None, None, None, "test_expired", "success", "general",
+            "", "", "/test", "GET", None, None, "{}", app_module.now() - 1,
+        ),
+    )
+    con.commit()
+    con.close()
+
+    app_module.prune_audit_logs(force=True)
+
+    con = app_module.db()
+    row = con.execute("SELECT id FROM security_audit_log WHERE id=?", (old_id,)).fetchone()
+    con.close()
+    assert row is None
+
+
+def test_admin_can_query_audit_logs_and_regular_user_cannot():
+    app_module.SITE_MODE = "general"
+    created, headers = join("audit-query", 33, "male")
+
+    blocked = client.get("/api/admin/audit-logs", headers=headers)
+    assert blocked.status_code == 401
+
+    allowed = client.get(
+        f"/api/admin/audit-logs?account_id={created['identity']['account_id']}&limit=20",
+        headers={"X-Admin-Key": "test-admin-secret", "X-Forwarded-For": "203.0.113.50"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert isinstance(allowed.json(), list)
+    assert any(item["account_id"] == created["identity"]["account_id"] for item in allowed.json())

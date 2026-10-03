@@ -66,7 +66,7 @@ function applyTrackUI(){
   state.language=FAI18N.active(state.me);
   const adult=SITE_MODE==='adult';
   const he=state.language==='he';
-  $('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
+  $$('.track-tab,.track-choice').forEach(b=>b.classList.toggle('active',b.dataset.track===SITE_MODE));
   if($('#feedEyebrow'))$('#feedEyebrow').textContent=adult?'ADULT FANTASIES':'WISHES · IDEAS · EXPERIENCES';
   if($('#feedTitle'))$('#feedTitle').textContent=adult
     ?(he?'מה הפנטזיה שלך?':'What is your fantasy?')

@@ -145,6 +145,26 @@ def recovery_hash(value: str) -> str:
     return hashlib.sha256(normalize_recovery_code(value).encode("utf-8")).hexdigest()
 
 
+def pin_hash(value: str, salt: str | None = None) -> str:
+    clean = re.sub(r"\D", "", value or "")
+    if not re.fullmatch(r"\d{6}", clean):
+        raise ValueError("PIN must contain exactly 6 digits")
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", clean.encode("utf-8"), salt.encode("utf-8"), 180_000).hex()
+    return salt + "$" + digest
+
+
+def verify_pin(value: str, stored: str | None) -> bool:
+    if not stored or "$" not in str(stored):
+        return False
+    salt, expected = str(stored).split("$", 1)
+    try:
+        actual = pin_hash(value, salt).split("$", 1)[1]
+    except ValueError:
+        return False
+    return secrets.compare_digest(actual, expected)
+
+
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -179,6 +199,7 @@ def audit_event_for_request(method: str, path: str) -> str | None:
     method = method.upper()
     exact = {
         ("POST", "/api/session"): "account_register",
+        ("POST", "/api/session/login"): "account_login",
         ("POST", "/api/session/recover"): "account_recover",
         ("POST", "/api/me/recovery-key"): "recovery_key_rotate",
         ("PUT", "/api/me/profile"): "profile_update",
@@ -388,6 +409,7 @@ def init_db() -> None:
             account_id TEXT UNIQUE,
             recovery_hash TEXT,
             recovery_created_at REAL,
+            pin_hash TEXT,
             created_at REAL NOT NULL
         );
 
@@ -608,6 +630,7 @@ def init_db() -> None:
         ("account_id", "TEXT"),
         ("recovery_hash", "TEXT"),
         ("recovery_created_at", "REAL"),
+        ("pin_hash", "TEXT"),
     ]
     for column_name, column_sql in identity_columns:
         if getattr(con, "postgres", False):
@@ -705,6 +728,7 @@ init_db()
 
 class SessionCreate(BaseModel):
     nickname: str = Field(min_length=2, max_length=40)
+    pin: str = Field(pattern=r"^\d{6}$")
     age: int = Field(ge=18, le=120)
     gender: str = Field(min_length=1, max_length=40)
     region: str = Field(default="", max_length=80)
@@ -712,6 +736,11 @@ class SessionCreate(BaseModel):
     relationship_status: str = Field(default="prefer_not_to_say", max_length=40)
     preferred_language: str = Field(default="auto", min_length=2, max_length=16)
     adult_confirm: bool
+
+
+class SessionLogin(BaseModel):
+    nickname: str = Field(min_length=2, max_length=40)
+    pin: str = Field(pattern=r"^\d{6}$")
 
 
 class SessionRecover(BaseModel):
@@ -1410,6 +1439,15 @@ def create_session(info: SessionCreate, request: Request):
     identity_id = uid()
     con = db()
 
+    nickname = info.nickname.strip()
+    existing = con.execute(
+        "SELECT 1 FROM identities WHERE LOWER(TRIM(nickname))=LOWER(TRIM(?))",
+        (nickname,),
+    ).fetchone()
+    if existing:
+        con.close()
+        raise HTTPException(409, "הכינוי הזה כבר תפוס")
+
     account_id = ""
     while not account_id:
         candidate = new_account_id()
@@ -1418,11 +1456,11 @@ def create_session(info: SessionCreate, request: Request):
 
     ts = now()
     con.execute(
-        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,account_id,recovery_hash,recovery_created_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO identities (id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,account_id,recovery_hash,recovery_created_at,pin_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             identity_id,
             token_hash(token),
-            info.nickname.strip(),
+            nickname,
             info.age,
             info.gender,
             info.region.strip(),
@@ -1432,6 +1470,7 @@ def create_session(info: SessionCreate, request: Request):
             account_id,
             recovery_hash(recovery_code),
             ts,
+            pin_hash(info.pin),
             ts,
         ),
     )
@@ -1451,6 +1490,59 @@ def create_session(info: SessionCreate, request: Request):
         "identity": identity_public(row),
         "recovery_code": recovery_code,
         "recovery_code_shown_once": True,
+    }
+
+
+@app.post("/api/session/login")
+def login_session(info: SessionLogin, request: Request):
+    nickname = info.nickname.strip()
+    con = db()
+    rows = con.execute(
+        "SELECT * FROM identities WHERE LOWER(TRIM(nickname))=LOWER(TRIM(?)) ORDER BY created_at DESC",
+        (nickname,),
+    ).fetchall()
+    matches = [row for row in rows if verify_pin(info.pin, row["pin_hash"] if "pin_hash" in set(row.keys()) else None)]
+    if len(matches) != 1:
+        con.close()
+        raise HTTPException(401, "כינוי או PIN שגויים")
+
+    row = matches[0]
+    if row["suspended"]:
+        con.close()
+        raise HTTPException(403, "החשבון מושעה")
+
+    token = new_session_token()
+    ts = now()
+    session_id = uid()
+    con.execute(
+        "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
+        (session_id, row["id"], token_hash(token), ts, ts),
+    )
+    request.state.audit_account_id = row["account_id"]
+    request.state.audit_identity_id = row["id"]
+    request.state.audit_session_id = session_id
+    con.commit()
+
+    wish_count = con.execute(
+        "SELECT COUNT(*) AS n FROM fantasies WHERE owner_id=?",
+        (row["id"],),
+    ).fetchone()["n"]
+    profile_started = bool(
+        (row["skills"] and row["skills"] != "[]")
+        or row["availability"]
+        or row["bio"]
+        or int(row["travel_radius_km"] or 0) > 0
+        or row["marital_status"] != "prefer_not_to_say"
+        or row["relationship_status"] != "prefer_not_to_say"
+        or bool(row["adult_discovery"])
+    )
+    con.close()
+    return {
+        "token": token,
+        "identity": identity_public(row),
+        "has_wish": bool(wish_count),
+        "profile_started": profile_started,
+        "needs_profile": not bool(wish_count or profile_started),
     }
 
 

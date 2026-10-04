@@ -1237,16 +1237,17 @@ def test_privacy_notice_discloses_ip_security_logging_and_retention():
     page = client.get("/")
     assert page.status_code == 200
     html = page.text
-    assert 'id="privacyNoticeModal"' in html
+    assert "פרטיות ואבטחת מידע / Privacy" in html
     assert "כתובת IP" in html
     assert "760 יום" in html
-    assert "IP address is not used as the account identity" in html
-    assert "AI service providers" in html
+    assert "The IP address is not used as the account identity" in html
+    assert "AI providers" in html
 
 
 def test_privacy_notice_is_reachable_before_registration():
     app_module.SITE_MODE = "general"
     html = client.get("/").text
     gate_index = html.index('id="gate"')
-    privacy_link_index = html.index("privacy-notice-open", gate_index)
-    assert privacy_link_index > gate_index
+    privacy_index = html.index("פרטיות ואבטחת מידע / Privacy", gate_index)
+    enter_index = html.index('id="enterBtn"', gate_index)
+    assert privacy_index > enter_index

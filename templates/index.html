@@ -227,6 +227,10 @@
       </div>
 
       <div id="loginPanel">
+        <div id="googleLoginWrap" class="gate-secondary-actions">
+          <button id="googleLoginBtn" class="ghost large" type="button">המשך עם Google</button>
+        </div>
+        <div class="gate-divider"><span>או עם כינוי ו־PIN</span></div>
         <div class="form-grid two">
           <label>כינוי
             <input id="loginNickname" maxlength="40" autocomplete="username">
@@ -272,6 +276,60 @@
         <label id="generalAgeConfirm" class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה האתר הכללי מיועד כרגע למבוגרים.</label>
         <button id="enterBtn" class="primary large">הרשמה</button>
         <div id="gateError" class="error"></div>
+      </div>
+
+      <div id="googlePendingPanel" class="hidden">
+        <div class="form-card">
+          <h2>Google התחבר בהצלחה</h2>
+          <p id="googlePendingIdentity" class="muted"></p>
+          <p>עכשיו רק צריך לבחור אם לחבר את Google לחשבון קיים או ליצור חשבון חדש.</p>
+
+          <div class="gate-secondary-actions">
+            <button id="googleLinkExistingChoice" class="primary" type="button">יש לי כבר חשבון</button>
+            <button id="googleCreateChoice" class="ghost" type="button">אני חדש/ה כאן</button>
+          </div>
+
+          <div id="googleLinkExistingPanel">
+            <div class="form-grid two">
+              <label>כינוי
+                <input id="googleExistingNickname" maxlength="40" autocomplete="username">
+              </label>
+              <label>PIN בן 6 ספרות
+                <input id="googleExistingPin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password">
+              </label>
+            </div>
+            <button id="googleLinkExistingBtn" class="primary large" type="button">חיבור לחשבון הקיים</button>
+          </div>
+
+          <div id="googleCreatePanel" class="hidden">
+            <div class="form-grid two">
+              <label>כינוי
+                <input id="googleNewNickname" maxlength="40">
+              </label>
+              <label>גיל
+                <input id="googleNewAge" type="number" min="18" max="120">
+              </label>
+              <label>מגדר
+                <select id="googleNewGender">
+                  <option value="">בחירה</option>
+                  <option value="female">אישה</option>
+                  <option value="male">גבר</option>
+                  <option value="nonbinary">א-בינארי/ת</option>
+                  <option value="trans_female">טרנסית</option>
+                  <option value="trans_male">טרנס</option>
+                  <option value="other">אחר</option>
+                  <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+                </select>
+              </label>
+              <label>אזור
+                <input id="googleNewRegion" maxlength="80">
+              </label>
+            </div>
+            <label class="checkline"><input id="googleNewAdultConfirm" type="checkbox"> מלאו לי 18 שנים.</label>
+            <button id="googleCreateAccountBtn" class="primary large" type="button">יצירת חשבון עם Google</button>
+          </div>
+          <div id="googlePendingError" class="error"></div>
+        </div>
       </div>
 
       <details class="account-recover-panel">

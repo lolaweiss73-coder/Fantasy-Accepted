@@ -290,12 +290,17 @@ $('#welcomeFromAviBtn').onclick=()=>{
   $('#welcomeInitials').focus();
 };
 
-$('#welcomeDoneBtn').onclick=()=>{
+function finishWelcome(){
   markWelcomeSeen();
   stopWelcomeSpeech();
   closeModal('welcomeMorinModal');
-  setTimeout(()=>$('#nickname')?.focus(),80);
-};
+  if(window.faNewRegistrationNeedsProfile){
+    window.faNewRegistrationNeedsProfile=false;
+    setTimeout(()=>$('#profileBtn')?.click(),100);
+  }
+}
+
+$('#welcomeDoneBtn').onclick=finishWelcome;
 
 $('#welcomeInitialsBtn').onclick=()=>{
   const initials=normalizeInitials($('#welcomeInitials').value);
@@ -389,15 +394,23 @@ $('#welcomeAnnetteNo').onclick=()=>{
 const welcomeCloseBtn=$('#welcomeMorinModal [data-close="welcomeMorinModal"]');
 if(welcomeCloseBtn){
   welcomeCloseBtn.addEventListener('click',()=>{
-    markWelcomeSeen();
-    stopWelcomeSpeech();
+    if(window.faNewRegistrationNeedsProfile){
+      finishWelcome();
+    }else{
+      markWelcomeSeen();
+      stopWelcomeSpeech();
+    }
   });
 }
 
 $('#welcomeMorinModal').addEventListener('click',e=>{
   if(e.target===$('#welcomeMorinModal')){
-    markWelcomeSeen();
-    stopWelcomeSpeech();
+    if(window.faNewRegistrationNeedsProfile){
+      finishWelcome();
+    }else{
+      markWelcomeSeen();
+      stopWelcomeSpeech();
+    }
   }
 });
 
@@ -406,13 +419,10 @@ document.addEventListener('pointerdown',()=>{
   if(welcomeBlockedAudio)resumeBlockedAudio();
 },{capture:true});
 
-function maybeOpenWelcome(){
-  if(SITE_MODE==='adult' && !document.body.classList.contains('adult-age-confirmed'))return;
-  if(!state.token && !localStorage.getItem(WELCOME_SEEN_KEY) && !$('#welcomeMorinModal').classList.contains('open')){
-    resetWelcome({auto:true});
-    openModal('welcomeMorinModal');
-  }
-}
+window.startNewUserWelcome=()=>{
+  resetWelcome({auto:true});
+  openModal('welcomeMorinModal');
+};
 
 window.refreshWelcomeLanguage=()=>{
   if($('#welcomeMorinModal')?.classList.contains('open')){
@@ -420,9 +430,3 @@ window.refreshWelcomeLanguage=()=>{
     renderWelcomeCopy({speak:false});
   }
 };
-
-document.addEventListener('fa:adult-gate-accepted',()=>{
-  setTimeout(maybeOpenWelcome,80);
-});
-
-setTimeout(maybeOpenWelcome,120);

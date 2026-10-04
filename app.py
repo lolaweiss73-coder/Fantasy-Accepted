@@ -48,7 +48,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.4.2")
+app = FastAPI(title="Fantasy Accepted", version="0.4.3")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -2682,17 +2682,27 @@ async def gateway_speech(text: str) -> bytes:
     return audio
 
 
+def bundled_morin_audio(filename: str) -> bytes | None:
+    path = STATIC_DIR / "morin_voice" / filename
+    if not path.is_file():
+        return None
+    return path.read_bytes()
+
+
 @app.get("/api/morin/welcome-audio/{segment_index}")
 async def morin_welcome_audio(segment_index: int):
-    lines = WELCOME_AUDIO[current_site_mode()]
+    mode = current_site_mode()
+    lines = WELCOME_AUDIO[mode]
     if segment_index < 0 or segment_index >= len(lines):
         raise HTTPException(404, "Voice segment not found")
-    audio = await gateway_speech(lines[segment_index])
+    audio = bundled_morin_audio(f"{mode}_{segment_index}.mp3")
+    if audio is None:
+        audio = await gateway_speech(lines[segment_index])
     return Response(
         content=audio,
         media_type="audio/mpeg",
         headers={
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "public, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -2703,12 +2713,14 @@ async def morin_welcome_extra_audio(audio_key: str):
     text = WELCOME_EXTRA_AUDIO.get(audio_key)
     if not text:
         raise HTTPException(404, "Voice segment not found")
-    audio = await gateway_speech(text)
+    audio = bundled_morin_audio(f"extra_{audio_key}.mp3")
+    if audio is None:
+        audio = await gateway_speech(text)
     return Response(
         content=audio,
         media_type="audio/mpeg",
         headers={
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "public, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
         },
     )

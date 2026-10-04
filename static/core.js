@@ -200,11 +200,17 @@ if($('#languageSelect')){
 
 function formatDate(ts){ return new Date(ts*1000).toLocaleString(state.language==='he'?'he-IL':'en-US',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
+function openProfileForIncompleteAccount(){
+  setTimeout(()=>$('#profileBtn')?.click(),120);
+}
+
 async function restoreSession(){
   if(!state.token) return;
   try{
     state.me = await api('/api/me');
+    const startStatus = await api('/api/me/start-status');
     enterApp();
+    if(startStatus?.needs_profile) openProfileForIncompleteAccount();
   }catch{
     localStorage.removeItem('faToken'); state.token='';
   }
@@ -229,16 +235,16 @@ async function submitRegistration(){
   const error=$('#gateError');
   error.textContent='';
   const payload = {
-    nickname: $('#nickname').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
+    nickname: $('#nickname').value.trim(), pin: $('#signupPin').value.trim(), age:Number($('#age').value), gender:$('#gender').value,
     region:$('#region').value.trim(), marital_status:$('#maritalStatus')?.value||'prefer_not_to_say',
     relationship_status:$('#relationshipStatus')?.value||'prefer_not_to_say',
     preferred_language:$('#languageSelect')?.value||FAI18N.preferredRaw()||'auto',
     adult_confirm:SITE_MODE==='adult' ? localStorage.getItem(ADULT_GATE_KEY)==='1' : $('#adultConfirm').checked
   };
-  if(!payload.nickname || payload.age < 18 || !payload.gender || !payload.adult_confirm){
+  if(!payload.nickname || !/^\d{6}$/.test(payload.pin) || payload.age < 18 || !payload.gender || !payload.adult_confirm){
     error.textContent=state.language==='he'
-      ?'צריך כינוי, גיל 18+, מגדר ואישור גיל.'
-      :'Please enter a nickname, age 18+, gender, and confirm your age.';
+      ?'צריך כינוי, PIN בן 6 ספרות, גיל 18+, מגדר ואישור גיל.'
+      :'Please enter a nickname, 6-digit PIN, age 18+, gender, and confirm your age.';
     toast(error.textContent);
     error.scrollIntoView({behavior:'smooth',block:'nearest'});
     return;
@@ -252,13 +258,14 @@ async function submitRegistration(){
     state.me=result.identity;
     localStorage.setItem('faToken',state.token);
     enterApp();
-    if(result.recovery_code){
-      setTimeout(()=>openRecoveryModal({
-        accountId:result.identity.account_id,
-        code:result.recovery_code,
-        configured:true
-      }),120);
-    }
+    window.faNewRegistrationNeedsProfile=true;
+    setTimeout(()=>{
+      if(typeof window.startNewUserWelcome==='function'){
+        window.startNewUserWelcome();
+      }else{
+        openProfileForIncompleteAccount();
+      }
+    },120);
   }catch(err){
     error.textContent=err.message;
     toast(err.message);
@@ -271,6 +278,60 @@ async function submitRegistration(){
 
 $('#enterBtn').addEventListener('click',submitRegistration);
 
+
+function showAccountMode(mode){
+  const login=mode!=='signup';
+  $('#loginPanel')?.classList.toggle('hidden',!login);
+  $('#signupPanel')?.classList.toggle('hidden',login);
+  $('#showLoginBtn')?.classList.toggle('primary',login);
+  $('#showLoginBtn')?.classList.toggle('ghost',!login);
+  $('#showSignupBtn')?.classList.toggle('primary',!login);
+  $('#showSignupBtn')?.classList.toggle('ghost',login);
+  setTimeout(()=>$(login?'#loginNickname':'#nickname')?.focus(),40);
+}
+
+$('#showLoginBtn')?.addEventListener('click',()=>showAccountMode('login'));
+$('#showSignupBtn')?.addEventListener('click',()=>showAccountMode('signup'));
+
+async function submitLogin(){
+  const button=$('#loginBtn');
+  const error=$('#loginError');
+  const nickname=$('#loginNickname')?.value.trim()||'';
+  const pin=$('#loginPin')?.value.trim()||'';
+  error.textContent='';
+  if(!nickname || !/^\d{6}$/.test(pin)){
+    error.textContent=state.language==='he'?'צריך כינוי ו-PIN בן 6 ספרות.':'Enter your nickname and 6-digit PIN.';
+    return;
+  }
+  button.disabled=true;
+  const previous=button.textContent;
+  button.textContent=state.language==='he'?'נכנסת…':'Signing in…';
+  try{
+    const result=await api('/api/session/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nickname,pin})
+    });
+    state.token=result.token;
+    state.me=result.identity;
+    localStorage.setItem('faToken',state.token);
+    enterApp();
+    if(result.needs_profile)openProfileForIncompleteAccount();
+  }catch(err){
+    error.textContent=err.message;
+  }finally{
+    button.disabled=false;
+    button.textContent=previous;
+  }
+}
+
+$('#loginBtn')?.addEventListener('click',submitLogin);
+$('#loginPin')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    submitLogin();
+  }
+});
 
 $('#recoverAccountBtn')?.addEventListener('click',async()=>{
   const button=$('#recoverAccountBtn');

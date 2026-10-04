@@ -219,34 +219,60 @@
         <button id="nameStoryBtn" class="ghost" type="button">למה Fantasy Accepted?</button>
       </div>
 
-      <div class="gate-divider"><span>כניסה לאתר</span></div>
-      <div class="form-grid two">
-        <label>שפת תצוגה
-          <select id="languageSelect">
-            <option value="auto">אוטומטי / Automatic</option>
-            <option value="he">עברית</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label>כינוי<input id="nickname" maxlength="40" autocomplete="nickname"></label>
-        <label>גיל<input id="age" type="number" min="18" max="120"></label>
-        <label>מגדר
-          <select id="gender">
-            <option value="">בחירה</option>
-            <option value="female">אישה</option>
-            <option value="male">גבר</option>
-            <option value="nonbinary">א-בינארי/ת</option>
-            <option value="trans_female">טרנסית</option>
-            <option value="trans_male">טרנס</option>
-            <option value="other">אחר</option>
-            <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
-          </select>
-        </label>
-        <label>אזור<input id="region" maxlength="80" placeholder="אזור כללי בלבד"></label>
+      <div class="gate-divider"><span>החשבון שלי</span></div>
+
+      <div class="gate-secondary-actions" id="accountModeTabs">
+        <button id="showLoginBtn" class="primary" type="button">יש לי חשבון</button>
+        <button id="showSignupBtn" class="ghost" type="button">אני חדש/ה כאן</button>
       </div>
-      <label id="generalAgeConfirm" class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה האתר הכללי מיועד כרגע למבוגרים.</label>
-      <button id="enterBtn" class="primary large">כניסה ל־משאלה התקבלה</button>
-      <div id="gateError" class="error"></div>
+
+      <div id="loginPanel">
+        <div class="form-grid two">
+          <label>כינוי
+            <input id="loginNickname" maxlength="40" autocomplete="username">
+          </label>
+          <label>PIN בן 6 ספרות
+            <input id="loginPin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password">
+          </label>
+        </div>
+        <button id="loginBtn" class="primary large" type="button">כניסה</button>
+        <div id="loginError" class="error"></div>
+      </div>
+
+      <div id="signupPanel" class="hidden">
+        <div class="form-grid two">
+          <label>שפת תצוגה
+            <select id="languageSelect">
+              <option value="auto">אוטומטי / Automatic</option>
+              <option value="he">עברית</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label>כינוי
+            <input id="nickname" maxlength="40" autocomplete="nickname">
+          </label>
+          <label>PIN בן 6 ספרות
+            <input id="signupPin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password">
+          </label>
+          <label>גיל<input id="age" type="number" min="18" max="120"></label>
+          <label>מגדר
+            <select id="gender">
+              <option value="">בחירה</option>
+              <option value="female">אישה</option>
+              <option value="male">גבר</option>
+              <option value="nonbinary">א-בינארי/ת</option>
+              <option value="trans_female">טרנסית</option>
+              <option value="trans_male">טרנס</option>
+              <option value="other">אחר</option>
+              <option value="prefer_not_to_say">מעדיפ/ה לא לציין</option>
+            </select>
+          </label>
+          <label>אזור<input id="region" maxlength="80" placeholder="אזור כללי בלבד"></label>
+        </div>
+        <label id="generalAgeConfirm" class="checkline"><input id="adultConfirm" type="checkbox"> מלאו לי 18 שנים. בגרסת ההשקה האתר הכללי מיועד כרגע למבוגרים.</label>
+        <button id="enterBtn" class="primary large">הרשמה</button>
+        <div id="gateError" class="error"></div>
+      </div>
 
       <details class="account-recover-panel">
         <summary>כבר נרשמתי במכשיר אחר / איבדתי את החיבור</summary>

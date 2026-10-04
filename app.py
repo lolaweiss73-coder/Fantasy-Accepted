@@ -48,7 +48,7 @@ def current_api_base() -> str:
     return _api_base_ctx.get()
 
 
-app = FastAPI(title="Fantasy Accepted", version="0.4.3")
+app = FastAPI(title="Fantasy Accepted", version="0.4.4")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -2859,6 +2859,30 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "ready_to_draft": False,
         }
     result["morin_response"] = str(result.get("morin_response") or "").strip()
+
+    # The creator's gender is already known from the profile, so avoid clumsy
+    # slash-forms such as "מחפש/ת" in the generated title.
+    title = str(result.get("title") or "").strip()
+    creator_gender = str(person["gender"] or "")
+    if creator_gender in {"male", "trans_male"}:
+        replacements = {
+            "מחפש/ת": "מחפש",
+            "מבקש/ת": "מבקש",
+            "מעוניין/ת": "מעוניין",
+            "רוצה/ה": "רוצה",
+        }
+    elif creator_gender in {"female", "trans_female"}:
+        replacements = {
+            "מחפש/ת": "מחפשת",
+            "מבקש/ת": "מבקשת",
+            "מעוניין/ת": "מעוניינת",
+            "רוצה/ה": "רוצה",
+        }
+    else:
+        replacements = {}
+    for neutral_form, gendered_form in replacements.items():
+        title = title.replace(neutral_form, gendered_form)
+    result["title"] = title
     result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
 
     con = db()

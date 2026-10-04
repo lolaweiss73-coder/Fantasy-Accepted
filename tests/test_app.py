@@ -930,18 +930,18 @@ def test_registration_frontend_uses_query_selector_all_for_track_groups():
     assert "$('.track-tab,.track-choice').forEach" in source
 
 
-def test_public_welcome_audio_uses_server_side_whitelisted_script(monkeypatch):
+def test_public_welcome_audio_uses_bundled_heart_audio(monkeypatch):
     app_module.SITE_MODE = "general"
 
-    async def fake_gateway_speech(text: str) -> bytes:
-        assert text == app_module.WELCOME_AUDIO["general"][0]
-        return b"fake-mp3"
+    async def fail_gateway_speech(text: str) -> bytes:
+        raise AssertionError("bundled onboarding audio should not call the paid TTS gateway")
 
-    monkeypatch.setattr(app_module, "gateway_speech", fake_gateway_speech)
+    monkeypatch.setattr(app_module, "gateway_speech", fail_gateway_speech)
     response = client.get("/api/morin/welcome-audio/0")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/mpeg")
-    assert response.content == b"fake-mp3"
+    assert response.content.startswith(b"ID3")
+    assert len(response.content) > 1000
 
     missing = client.get("/api/morin/welcome-audio/999")
     assert missing.status_code == 404

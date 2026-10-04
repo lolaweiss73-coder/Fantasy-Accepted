@@ -1523,26 +1523,12 @@ def login_session(info: SessionLogin, request: Request):
     request.state.audit_session_id = session_id
     con.commit()
 
-    wish_count = con.execute(
-        "SELECT COUNT(*) AS n FROM fantasies WHERE owner_id=?",
-        (row["id"],),
-    ).fetchone()["n"]
-    profile_started = bool(
-        (row["skills"] and row["skills"] != "[]")
-        or row["availability"]
-        or row["bio"]
-        or int(row["travel_radius_km"] or 0) > 0
-        or row["marital_status"] != "prefer_not_to_say"
-        or row["relationship_status"] != "prefer_not_to_say"
-        or bool(row["adult_discovery"])
-    )
+    status = account_start_status(con, row)
     con.close()
     return {
         "token": token,
         "identity": identity_public(row),
-        "has_wish": bool(wish_count),
-        "profile_started": profile_started,
-        "needs_profile": not bool(wish_count or profile_started),
+        **status,
     }
 
 
@@ -1574,6 +1560,36 @@ def recover_session(info: SessionRecover, request: Request):
 @app.get("/api/me")
 def me(authorization: str | None = Header(default=None)):
     return identity_public(current_identity(authorization))
+
+
+def account_start_status(con: sqlite3.Connection, person: sqlite3.Row) -> dict[str, bool]:
+    wish_count = con.execute(
+        "SELECT COUNT(*) AS n FROM fantasies WHERE owner_id=?",
+        (person["id"],),
+    ).fetchone()["n"]
+    profile_started = bool(
+        (person["skills"] and person["skills"] != "[]")
+        or person["availability"]
+        or person["bio"]
+        or int(person["travel_radius_km"] or 0) > 0
+        or person["marital_status"] != "prefer_not_to_say"
+        or person["relationship_status"] != "prefer_not_to_say"
+        or bool(person["adult_discovery"])
+    )
+    return {
+        "has_wish": bool(wish_count),
+        "profile_started": profile_started,
+        "needs_profile": not bool(wish_count or profile_started),
+    }
+
+
+@app.get("/api/me/start-status")
+def my_start_status(authorization: str | None = Header(default=None)):
+    person = current_identity(authorization)
+    con = db()
+    status = account_start_status(con, person)
+    con.close()
+    return status
 
 
 @app.get("/api/me/recovery-status")

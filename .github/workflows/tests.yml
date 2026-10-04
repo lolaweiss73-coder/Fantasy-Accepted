@@ -1,4 +1,6 @@
 name: tests
+permissions:
+  contents: write
 on:
   push:
   pull_request:
@@ -38,5 +40,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: kokoro-morin-samples
-          path: kokoro_samples/*.mp3
+          path: static/morin_voice/*.mp3
           retention-days: 7

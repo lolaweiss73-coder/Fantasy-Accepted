@@ -355,6 +355,23 @@ if(!SpeechRecognitionAPI){
   };
 }
 
+function speakMorinDynamic(text){
+  const value=String(text||'').trim();
+  if(!value || !('speechSynthesis' in window) || !window.SpeechSynthesisUtterance)return;
+  try{
+    window.speechSynthesis.cancel();
+    const utterance=new SpeechSynthesisUtterance(value);
+    const hebrew=/[\u0590-\u05FF]/.test(value);
+    utterance.lang=hebrew?'he-IL':'en-US';
+    utterance.rate=0.98;
+    utterance.pitch=1;
+    const voices=window.speechSynthesis.getVoices?.()||[];
+    const wanted=voices.find(v=>String(v.lang||'').toLowerCase().startsWith(hebrew?'he':'en'));
+    if(wanted)utterance.voice=wanted;
+    window.speechSynthesis.speak(utterance);
+  }catch{}
+}
+
 $('#morinStructureBtn').onclick=async()=>{
   const text=$('#morinText').value.trim();
   if(text.length<10){$('#morinStatus').textContent='ספרו לי קצת יותר';return}
@@ -392,6 +409,7 @@ $('#morinStructureBtn').onclick=async()=>{
       morinPendingQuestions=questions.slice(0,2);
       $('#morinStatus').textContent='אפשר לענות בקול או בכתב, ואז לבדוק שוב.';
       $('#morinStructureBtn').textContent='עניתי — בדקי שוב';
+      speakMorinDynamic([reply,...questions].filter(Boolean).join(' '));
       return;
     }
 
@@ -416,6 +434,7 @@ $('#morinStructureBtn').onclick=async()=>{
     const structuredNoun=(result.kind||state.track)==='general'?'המשאלה':'הפנטזיה';
     review.textContent=reply||`מורין הבינה את ${structuredNoun} והכינה טיוטה לבדיקה.`;
     review.classList.remove('hidden');
+    speakMorinDynamic(reply||review.textContent);
 
     closeModal('morinModal');
     showView('create');

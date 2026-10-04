@@ -1421,6 +1421,7 @@ def site_config():
         "adult": mode == "adult",
         "service": "Fantasy Accepted Adult" if mode == "adult" else "משאלה התקבלה",
         "api_base": current_api_base(),
+        "google_auth_configured": all(google_oauth_config()),
     }
 
 

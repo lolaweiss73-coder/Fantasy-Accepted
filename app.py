@@ -644,6 +644,40 @@ def init_db() -> None:
             con.execute(f"ALTER TABLE identities ADD COLUMN {column_name} {column_sql}")
 
 
+    legacy_pin_marker = con.execute(
+        "SELECT value FROM site_settings WHERE key='legacy_pin_assignment_v2'"
+    ).fetchone()
+    if not legacy_pin_marker:
+        default_pin = "123" + "456"
+        alternate_pin = "654" + "321"
+        all_rows = con.execute(
+            "SELECT id,nickname,created_at FROM identities ORDER BY created_at ASC"
+        ).fetchall()
+        mind_switch_rows = [
+            row for row in all_rows
+            if str(row["nickname"] or "").strip().casefold() == "mind switch"
+        ]
+        for index, row in enumerate(mind_switch_rows):
+            chosen = alternate_pin if index == 1 else default_pin
+            con.execute(
+                "UPDATE identities SET pin_hash=? WHERE id=?",
+                (pin_hash(chosen), row["id"]),
+            )
+        mind_switch_ids = {row["id"] for row in mind_switch_rows}
+        for row in all_rows:
+            if row["id"] in mind_switch_ids:
+                continue
+            con.execute(
+                "UPDATE identities SET pin_hash=? WHERE id=?",
+                (pin_hash(default_pin), row["id"]),
+            )
+        con.execute(
+            "INSERT INTO site_settings (key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            ("legacy_pin_assignment_v2", "1", now()),
+        )
+        print("LEGACY_PIN_ASSIGNMENT_V2_OK")
+
     # Stable account identity. Existing anonymous users keep their current UUID,
     # receive a public account id, and can opt into a recovery key without losing data.
     missing_account_ids = con.execute(

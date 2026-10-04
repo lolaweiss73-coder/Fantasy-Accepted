@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -167,6 +167,31 @@ def verify_pin(value: str, stored: str | None) -> bool:
 
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def oauth_secret_hash(value: str) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def google_oauth_config() -> tuple[str, str]:
+    return (
+        os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+    )
+
+
+def issue_session_for_identity(con, row: sqlite3.Row, request: Request) -> tuple[str, str]:
+    token = new_session_token()
+    ts = now()
+    session_id = uid()
+    con.execute(
+        "INSERT INTO account_sessions (id,identity_id,token_hash,created_at,last_seen_at) VALUES (?,?,?,?,?)",
+        (session_id, row["id"], token_hash(token), ts, ts),
+    )
+    request.state.audit_account_id = row["account_id"]
+    request.state.audit_identity_id = row["id"]
+    request.state.audit_session_id = session_id
+    return token, session_id
 
 
 AUDIT_RETENTION_DAYS = max(760, int(os.environ.get("AUDIT_RETENTION_DAYS", "760") or "760"))
@@ -549,6 +574,44 @@ def init_db() -> None:
             revoked_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS oauth_identities (
+            id TEXT PRIMARY KEY,
+            identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            provider_user_id TEXT NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            UNIQUE(provider, provider_user_id),
+            UNIQUE(identity_id, provider)
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_states (
+            state_hash TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            site_mode TEXT NOT NULL DEFAULT 'general',
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_pending (
+            token_hash TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            provider_user_id TEXT NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            site_mode TEXT NOT NULL DEFAULT 'general',
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS oauth_login_codes (
+            code_hash TEXT PRIMARY KEY,
+            identity_id TEXT NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS security_audit_log (
             id TEXT PRIMARY KEY,
             occurred_at REAL NOT NULL,
@@ -593,6 +656,10 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_id, purpose, site_mode, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_photos_fantasy ON photos(fantasy_id, created_at ASC);
         CREATE INDEX IF NOT EXISTS idx_account_sessions_identity ON account_sessions(identity_id, revoked_at, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_oauth_identity_owner ON oauth_identities(identity_id, provider);
+        CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_oauth_pending_expiry ON oauth_pending(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_oauth_login_codes_expiry ON oauth_login_codes(expires_at);
         CREATE INDEX IF NOT EXISTS idx_security_audit_time ON security_audit_log(occurred_at DESC);
         CREATE INDEX IF NOT EXISTS idx_security_audit_account ON security_audit_log(account_id, occurred_at DESC);
         CREATE INDEX IF NOT EXISTS idx_security_audit_event ON security_audit_log(event_type, result, occurred_at DESC);
@@ -775,6 +842,22 @@ class SessionCreate(BaseModel):
 class SessionLogin(BaseModel):
     nickname: str = Field(min_length=2, max_length=40)
     pin: str = Field(pattern=r"^\d{6}$")
+
+
+class GooglePendingLink(BaseModel):
+    pending_token: str = Field(min_length=20, max_length=200)
+    nickname: str = Field(min_length=2, max_length=40)
+    pin: str = Field(pattern=r"^\d{6}$")
+
+
+class GooglePendingCreate(BaseModel):
+    pending_token: str = Field(min_length=20, max_length=200)
+    nickname: str = Field(min_length=2, max_length=40)
+    age: int = Field(ge=18, le=120)
+    gender: str = Field(min_length=1, max_length=40)
+    region: str = Field(default="", max_length=80)
+    preferred_language: str = Field(default="auto", min_length=2, max_length=16)
+    adult_confirm: bool
 
 
 class SessionRecover(BaseModel):
@@ -1564,6 +1647,273 @@ def login_session(info: SessionLogin, request: Request):
         "identity": identity_public(row),
         **status,
     }
+
+
+@app.get("/api/auth/google/start")
+def google_start(request: Request):
+    if current_site_mode() != "general":
+        raise HTTPException(404, "Google login is available on the general site")
+    client_id, client_secret = google_oauth_config()
+    if not client_id or not client_secret:
+        raise HTTPException(503, "Google login is not configured yet")
+
+    raw_state = secrets.token_urlsafe(32)
+    ts = now()
+    con = db()
+    con.execute("DELETE FROM oauth_states WHERE expires_at<?", (ts,))
+    con.execute(
+        "INSERT INTO oauth_states (state_hash,provider,site_mode,created_at,expires_at) VALUES (?,?,?,?,?)",
+        (oauth_secret_hash(raw_state), "google", "general", ts, ts + 600),
+    )
+    con.commit()
+    con.close()
+
+    redirect_uri = str(request.url_for("google_callback"))
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": raw_state,
+        "prompt": "select_account",
+    }
+    query = httpx.QueryParams(params)
+    return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + str(query), status_code=302)
+
+
+@app.get("/api/auth/google/callback", name="google_callback")
+def google_callback(request: Request, code: str = Query(default=""), state: str = Query(default="")):
+    if not code or not state:
+        return RedirectResponse("/?google_error=missing", status_code=302)
+
+    ts = now()
+    con = db()
+    state_row = con.execute(
+        "SELECT * FROM oauth_states WHERE state_hash=? AND provider='google' AND expires_at>=?",
+        (oauth_secret_hash(state), ts),
+    ).fetchone()
+    if not state_row:
+        con.close()
+        return RedirectResponse("/?google_error=state", status_code=302)
+    con.execute("DELETE FROM oauth_states WHERE state_hash=?", (oauth_secret_hash(state),))
+    con.commit()
+
+    client_id, client_secret = google_oauth_config()
+    redirect_uri = str(request.url_for("google_callback"))
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            token_response = client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json().get("access_token", "")
+            if not access_token:
+                raise ValueError("missing access token")
+            user_response = client.get(
+                "https://openidconnect.googleapis.com/v1/userinfo",
+                headers={"Authorization": "Bearer " + access_token},
+            )
+            user_response.raise_for_status()
+            user = user_response.json()
+    except Exception:
+        con.close()
+        return RedirectResponse("/?google_error=exchange", status_code=302)
+
+    provider_user_id = str(user.get("sub") or "").strip()
+    if not provider_user_id:
+        con.close()
+        return RedirectResponse("/?google_error=profile", status_code=302)
+    email = str(user.get("email") or "").strip()
+    display_name = str(user.get("name") or "").strip()
+
+    linked = con.execute(
+        "SELECT i.* FROM oauth_identities o JOIN identities i ON i.id=o.identity_id "
+        "WHERE o.provider='google' AND o.provider_user_id=?",
+        (provider_user_id,),
+    ).fetchone()
+    if linked:
+        raw_code = secrets.token_urlsafe(32)
+        con.execute("DELETE FROM oauth_login_codes WHERE expires_at<?", (ts,))
+        con.execute(
+            "INSERT INTO oauth_login_codes (code_hash,identity_id,created_at,expires_at) VALUES (?,?,?,?)",
+            (oauth_secret_hash(raw_code), linked["id"], ts, ts + 120),
+        )
+        con.commit()
+        con.close()
+        return RedirectResponse("/?google_login=" + raw_code, status_code=302)
+
+    raw_pending = secrets.token_urlsafe(32)
+    con.execute("DELETE FROM oauth_pending WHERE expires_at<?", (ts,))
+    con.execute(
+        "INSERT INTO oauth_pending (token_hash,provider,provider_user_id,email,display_name,site_mode,created_at,expires_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (
+            oauth_secret_hash(raw_pending),
+            "google",
+            provider_user_id,
+            email,
+            display_name,
+            "general",
+            ts,
+            ts + 900,
+        ),
+    )
+    con.commit()
+    con.close()
+    return RedirectResponse("/?google_pending=" + raw_pending, status_code=302)
+
+
+@app.post("/api/session/google/consume")
+def google_consume(request: Request, code: str = Query(min_length=20, max_length=200)):
+    ts = now()
+    con = db()
+    row = con.execute(
+        "SELECT i.* FROM oauth_login_codes c JOIN identities i ON i.id=c.identity_id "
+        "WHERE c.code_hash=? AND c.expires_at>=?",
+        (oauth_secret_hash(code), ts),
+    ).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(401, "Google login expired")
+    con.execute("DELETE FROM oauth_login_codes WHERE code_hash=?", (oauth_secret_hash(code),))
+    token, _ = issue_session_for_identity(con, row, request)
+    status = account_start_status(con, row)
+    con.commit()
+    con.close()
+    return {"token": token, "identity": identity_public(row), **status}
+
+
+@app.get("/api/session/google/pending")
+def google_pending_status(token: str = Query(min_length=20, max_length=200)):
+    ts = now()
+    con = db()
+    row = con.execute(
+        "SELECT email,display_name FROM oauth_pending WHERE token_hash=? AND expires_at>=?",
+        (oauth_secret_hash(token), ts),
+    ).fetchone()
+    con.close()
+    if not row:
+        raise HTTPException(401, "Google login expired")
+    return {"email": row["email"], "display_name": row["display_name"]}
+
+
+@app.post("/api/session/google/link-existing")
+def google_link_existing(info: GooglePendingLink, request: Request):
+    ts = now()
+    con = db()
+    pending = con.execute(
+        "SELECT * FROM oauth_pending WHERE token_hash=? AND expires_at>=?",
+        (oauth_secret_hash(info.pending_token), ts),
+    ).fetchone()
+    if not pending:
+        con.close()
+        raise HTTPException(401, "Google login expired")
+
+    rows = con.execute(
+        "SELECT * FROM identities WHERE LOWER(TRIM(nickname))=LOWER(TRIM(?)) ORDER BY created_at DESC",
+        (info.nickname.strip(),),
+    ).fetchall()
+    matches = [row for row in rows if verify_pin(info.pin, row["pin_hash"] if "pin_hash" in set(row.keys()) else None)]
+    if len(matches) != 1:
+        con.close()
+        raise HTTPException(401, "כינוי או PIN שגויים")
+    row = matches[0]
+
+    already = con.execute(
+        "SELECT identity_id FROM oauth_identities WHERE provider='google' AND provider_user_id=?",
+        (pending["provider_user_id"],),
+    ).fetchone()
+    if already and already["identity_id"] != row["id"]:
+        con.close()
+        raise HTTPException(409, "חשבון Google הזה כבר מחובר למשתמש אחר")
+    existing_provider = con.execute(
+        "SELECT 1 FROM oauth_identities WHERE identity_id=? AND provider='google'",
+        (row["id"],),
+    ).fetchone()
+    if existing_provider:
+        con.close()
+        raise HTTPException(409, "למשתמש הזה כבר מחובר חשבון Google אחר")
+
+    con.execute(
+        "INSERT INTO oauth_identities (id,identity_id,provider,provider_user_id,email,display_name,created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (uid(), row["id"], "google", pending["provider_user_id"], pending["email"], pending["display_name"], ts),
+    )
+    con.execute("DELETE FROM oauth_pending WHERE token_hash=?", (oauth_secret_hash(info.pending_token),))
+    token, _ = issue_session_for_identity(con, row, request)
+    status = account_start_status(con, row)
+    con.commit()
+    con.close()
+    return {"token": token, "identity": identity_public(row), **status}
+
+
+@app.post("/api/session/google/create")
+def google_create_account(info: GooglePendingCreate, request: Request):
+    if not info.adult_confirm:
+        raise HTTPException(400, "יש לאשר גיל 18 ומעלה")
+    ts = now()
+    con = db()
+    pending = con.execute(
+        "SELECT * FROM oauth_pending WHERE token_hash=? AND expires_at>=?",
+        (oauth_secret_hash(info.pending_token), ts),
+    ).fetchone()
+    if not pending:
+        con.close()
+        raise HTTPException(401, "Google login expired")
+
+    nickname = info.nickname.strip()
+    if con.execute(
+        "SELECT 1 FROM identities WHERE LOWER(TRIM(nickname))=LOWER(TRIM(?))",
+        (nickname,),
+    ).fetchone():
+        con.close()
+        raise HTTPException(409, "הכינוי הזה כבר תפוס")
+
+    account_id = ""
+    while not account_id:
+        candidate = new_account_id()
+        if not con.execute("SELECT 1 FROM identities WHERE account_id=?", (candidate,)).fetchone():
+            account_id = candidate
+
+    identity_id = uid()
+    bootstrap_token = new_session_token()
+    con.execute(
+        "INSERT INTO identities "
+        "(id,token_hash,nickname,age,gender,region,marital_status,relationship_status,preferred_language,account_id,pin_hash,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            identity_id,
+            token_hash(bootstrap_token),
+            nickname,
+            info.age,
+            info.gender,
+            info.region.strip(),
+            "prefer_not_to_say",
+            "prefer_not_to_say",
+            info.preferred_language.strip().lower(),
+            account_id,
+            None,
+            ts,
+        ),
+    )
+    con.execute(
+        "INSERT INTO oauth_identities (id,identity_id,provider,provider_user_id,email,display_name,created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (uid(), identity_id, "google", pending["provider_user_id"], pending["email"], pending["display_name"], ts),
+    )
+    con.execute("DELETE FROM oauth_pending WHERE token_hash=?", (oauth_secret_hash(info.pending_token),))
+    row = con.execute("SELECT * FROM identities WHERE id=?", (identity_id,)).fetchone()
+    token, _ = issue_session_for_identity(con, row, request)
+    con.commit()
+    con.close()
+    return {"token": token, "identity": identity_public(row), "new_account": True, "needs_profile": True}
 
 
 @app.post("/api/session/recover")

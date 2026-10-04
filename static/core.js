@@ -337,9 +337,21 @@ function googleAuthStartUrl(){
   return `${API_BASE}/api/auth/google/start`;
 }
 
-if($('#googleLoginWrap')){
-  $('#googleLoginWrap').classList.toggle('hidden',SITE_MODE!=='general');
+async function refreshGoogleLoginAvailability(){
+  const wrap=$('#googleLoginWrap');
+  if(!wrap)return;
+  if(SITE_MODE!=='general'){
+    wrap.classList.add('hidden');
+    return;
+  }
+  try{
+    const config=await api('/api/site-config');
+    wrap.classList.toggle('hidden',!config.google_auth_configured);
+  }catch{
+    wrap.classList.add('hidden');
+  }
 }
+refreshGoogleLoginAvailability();
 
 $('#googleLoginBtn')?.addEventListener('click',()=>{
   if(SITE_MODE!=='general')return;

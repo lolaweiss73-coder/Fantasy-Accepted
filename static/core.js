@@ -333,6 +333,158 @@ $('#loginPin')?.addEventListener('keydown',e=>{
   }
 });
 
+function googleAuthStartUrl(){
+  return `${API_BASE}/api/auth/google/start`;
+}
+
+if($('#googleLoginWrap')){
+  $('#googleLoginWrap').classList.toggle('hidden',SITE_MODE!=='general');
+}
+
+$('#googleLoginBtn')?.addEventListener('click',()=>{
+  if(SITE_MODE!=='general')return;
+  window.location.assign(googleAuthStartUrl());
+});
+
+function showGooglePendingChoice(mode){
+  const existing=mode!=='new';
+  $('#googleLinkExistingPanel')?.classList.toggle('hidden',!existing);
+  $('#googleCreatePanel')?.classList.toggle('hidden',existing);
+  $('#googleLinkExistingChoice')?.classList.toggle('primary',existing);
+  $('#googleLinkExistingChoice')?.classList.toggle('ghost',!existing);
+  $('#googleCreateChoice')?.classList.toggle('primary',!existing);
+  $('#googleCreateChoice')?.classList.toggle('ghost',existing);
+}
+
+$('#googleLinkExistingChoice')?.addEventListener('click',()=>showGooglePendingChoice('existing'));
+$('#googleCreateChoice')?.addEventListener('click',()=>showGooglePendingChoice('new'));
+
+async function finishGoogleSession(result,{isNew=false}={}){
+  state.token=result.token;
+  state.me=result.identity;
+  localStorage.setItem('faToken',state.token);
+  const url=new URL(window.location.href);
+  url.searchParams.delete('google_login');
+  url.searchParams.delete('google_pending');
+  url.searchParams.delete('google_error');
+  history.replaceState({},'',url.pathname+url.search+url.hash);
+  enterApp();
+  if(isNew){
+    window.faNewRegistrationNeedsProfile=true;
+    setTimeout(()=>{
+      if(typeof window.startNewUserWelcome==='function'){
+        window.startNewUserWelcome();
+      }else{
+        openProfileForIncompleteAccount();
+      }
+    },120);
+  }else if(result.needs_profile){
+    openProfileForIncompleteAccount();
+  }
+}
+
+async function consumeGoogleLogin(code){
+  try{
+    const result=await api(`/api/session/google/consume?code=${encodeURIComponent(code)}`,{method:'POST'});
+    await finishGoogleSession(result);
+  }catch(err){
+    toast(err.message||'Google login failed');
+  }
+}
+
+async function openGooglePending(token){
+  const gate=$('#gate');
+  gate?.classList.add('open');
+  $('#loginPanel')?.classList.add('hidden');
+  $('#signupPanel')?.classList.add('hidden');
+  $('#accountModeTabs')?.classList.add('hidden');
+  $('#googlePendingPanel')?.classList.remove('hidden');
+  showGooglePendingChoice('existing');
+  window.faGooglePendingToken=token;
+  try{
+    const info=await api(`/api/session/google/pending?token=${encodeURIComponent(token)}`);
+    if($('#googlePendingIdentity')){
+      const label=[info.display_name,info.email].filter(Boolean).join(' · ');
+      $('#googlePendingIdentity').textContent=label||'Google';
+    }
+  }catch(err){
+    $('#googlePendingError').textContent=err.message;
+  }
+}
+
+$('#googleLinkExistingBtn')?.addEventListener('click',async()=>{
+  const nickname=$('#googleExistingNickname')?.value.trim()||'';
+  const pin=$('#googleExistingPin')?.value.trim()||'';
+  const error=$('#googlePendingError');
+  error.textContent='';
+  if(!nickname || !/^\d{6}$/.test(pin)){
+    error.textContent='צריך כינוי ו־PIN בן 6 ספרות.';
+    return;
+  }
+  try{
+    const result=await api('/api/session/google/link-existing',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        pending_token:window.faGooglePendingToken,
+        nickname,
+        pin
+      })
+    });
+    await finishGoogleSession(result);
+  }catch(err){
+    error.textContent=err.message;
+  }
+});
+
+$('#googleCreateAccountBtn')?.addEventListener('click',async()=>{
+  const error=$('#googlePendingError');
+  error.textContent='';
+  const payload={
+    pending_token:window.faGooglePendingToken,
+    nickname:$('#googleNewNickname')?.value.trim()||'',
+    age:Number($('#googleNewAge')?.value||0),
+    gender:$('#googleNewGender')?.value||'',
+    region:$('#googleNewRegion')?.value.trim()||'',
+    preferred_language:FAI18N.preferredRaw()||'auto',
+    adult_confirm:Boolean($('#googleNewAdultConfirm')?.checked)
+  };
+  if(!payload.nickname || payload.age<18 || !payload.gender || !payload.adult_confirm){
+    error.textContent='צריך כינוי, גיל 18+, מגדר ואישור גיל.';
+    return;
+  }
+  try{
+    const result=await api('/api/session/google/create',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    await finishGoogleSession(result,{isNew:true});
+  }catch(err){
+    error.textContent=err.message;
+  }
+});
+
+async function handleGoogleReturn(){
+  const params=new URLSearchParams(window.location.search);
+  const loginCode=params.get('google_login');
+  const pending=params.get('google_pending');
+  const error=params.get('google_error');
+  if(error){
+    toast('ההתחברות עם Google לא הושלמה.');
+    return;
+  }
+  if(loginCode){
+    await consumeGoogleLogin(loginCode);
+    return;
+  }
+  if(pending){
+    await openGooglePending(pending);
+  }
+}
+
+setTimeout(handleGoogleReturn,0);
+
 $('#recoverAccountBtn')?.addEventListener('click',async()=>{
   const button=$('#recoverAccountBtn');
   const status=$('#recoverAccountStatus');

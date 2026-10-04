@@ -207,18 +207,8 @@ function resumeBlockedAudio(){
 }
 
 function renderWelcomeCopy({speak=false}={}){
-  const script=currentWelcomeScript();
   const root=$('#welcomeMorinChat');
   if(root)root.replaceChildren();
-  if($('#welcomeTranscript'))$('#welcomeTranscript').value='';
-  for(const item of script){
-    const caption=captionOf(item);
-    const bubble=document.createElement('div');
-    bubble.className='welcome-bubble morin-bubble';
-    bubble.textContent=caption;
-    root?.append(bubble);
-    appendWelcomeTranscript(caption);
-  }
 
   const he=welcomeLanguage()==='he';
   if($('#welcomeMorinModal .morin-header h2')){

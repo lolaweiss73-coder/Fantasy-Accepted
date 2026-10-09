@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import morin_gateway as morin_inprocess
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -1533,6 +1534,7 @@ def delete_announcement(
 @app.get("/api/health")
 def health():
     gateway_ready = bool(os.environ.get("MORIN_GATEWAY_URL") and os.environ.get("MORIN_GATEWAY_TOKEN"))
+    embedded_ready = bool(morin_inprocess.openai_client or morin_inprocess.OPENROUTER_API_KEY)
     direct_ready = bool(
         (os.environ.get("OPENROUTER_API_KEY") and os.environ.get("MORIN_MODEL"))
         or (os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_MODEL"))
@@ -1544,7 +1546,8 @@ def health():
         "site_mode": current_site_mode(),
         "database": backend_name(),
         "data_dir_configured": "FANTASY_DATA_DIR" in os.environ,
-        "morin_configured": gateway_ready or direct_ready,
+        "morin_configured": gateway_ready or direct_ready or embedded_ready,
+        "morin_embedded": embedded_ready,
     }
 
 
@@ -3146,29 +3149,42 @@ _TTS_CACHE: dict[str, bytes] = {}
 
 
 async def gateway_speech(text: str) -> bytes:
-    gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
-    gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
-    if not gateway_url or not gateway_token:
-        raise HTTPException(503, "OpenAI speech is not connected to the site")
-
+    """Serve TTS from the in-process provider when configured; retain the old gateway as a migration fallback."""
     cache_key = hashlib.sha256(text.encode("utf-8")).hexdigest()
     cached = _TTS_CACHE.get(cache_key)
     if cached:
         return cached
 
-    async with httpx.AsyncClient(timeout=80) as client:
-        response = await client.post(
-            f"{gateway_url}/speak",
-            headers={
-                "Authorization": f"Bearer {gateway_token}",
-                "Content-Type": "application/json",
-            },
-            json={"text": text},
-        )
-    if response.status_code >= 400:
-        raise HTTPException(502, "Morin's OpenAI voice is temporarily unavailable")
+    gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
+    gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
+    audio = None
 
-    audio = response.content
+    if morin_inprocess.OPENAI_API_KEY:
+        try:
+            local_response = await morin_inprocess.speech_internal(
+                morin_inprocess.SpeechRequest(text=text)
+            )
+            audio = local_response.body
+        except HTTPException:
+            if not gateway_url or not gateway_token:
+                raise
+
+    if audio is None:
+        if not gateway_url or not gateway_token:
+            raise HTTPException(503, "OpenAI speech is not connected to the site")
+        async with httpx.AsyncClient(timeout=80) as client:
+            response = await client.post(
+                f"{gateway_url}/speak",
+                headers={
+                    "Authorization": f"Bearer {gateway_token}",
+                    "Content-Type": "application/json",
+                },
+                json={"text": text},
+            )
+        if response.status_code >= 400:
+            raise HTTPException(502, "Morin's OpenAI voice is temporarily unavailable")
+        audio = response.content
+
     if len(_TTS_CACHE) >= 64:
         _TTS_CACHE.pop(next(iter(_TTS_CACHE)))
     _TTS_CACHE[cache_key] = audio
@@ -3237,6 +3253,15 @@ async def morin_speak(info: MorinSpeakRequest, authorization: str | None = Heade
 async def morin_transcribe(info: MorinTranscribeRequest, authorization: str | None = Header(default=None)):
     current_identity(authorization)
 
+    if morin_inprocess.OPENROUTER_API_KEY:
+        return await morin_inprocess.transcribe_internal(
+            morin_inprocess.TranscriptionRequest(
+                audio_base64=info.audio_base64,
+                format=info.format,
+                language=info.language,
+            )
+        )
+
     gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
     gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
     if not gateway_url or not gateway_token:
@@ -3268,7 +3293,21 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
     gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
     gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
 
-    if gateway_url and gateway_token:
+    result = None
+    if morin_inprocess.openai_client or morin_inprocess.OPENROUTER_API_KEY:
+        try:
+            result = await morin_inprocess.structure_internal(
+                morin_inprocess.StructureRequest(
+                    text=info.text,
+                    previous_questions=info.previous_questions,
+                    track_hint=current_site_mode(),
+                )
+            )
+        except HTTPException:
+            if not gateway_url or not gateway_token:
+                raise
+
+    if result is None and gateway_url and gateway_token:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{gateway_url}/structure",
@@ -3281,7 +3320,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         if response.status_code >= 400:
             raise HTTPException(502, "מורין לא הצליחה לעבד את הבקשה כרגע")
         result = response.json()
-    else:
+    elif result is None:
         api_key = os.environ.get("OPENROUTER_API_KEY")
         model = os.environ.get("MORIN_MODEL")
         if not api_key or not model:

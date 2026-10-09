@@ -38,6 +38,17 @@ def test_embedded_transcription_invokes_local_helper(monkeypatch):
 
 
 def test_embedded_structuring_invokes_local_helper(monkeypatch):
+    class FakeDb:
+        def execute(self, *args):
+            pass
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(site, "db", lambda: FakeDb())
     monkeypatch.setattr(gw, "openai_client", object())
     monkeypatch.setattr(site, "current_identity", lambda token: {"id": "test-user", "gender": "female"})
     monkeypatch.setattr(site, "current_site_mode", lambda: "general")

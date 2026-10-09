@@ -23,7 +23,7 @@ def test_embedded_speech_invokes_local_helper(monkeypatch):
 
 def test_embedded_transcription_invokes_local_helper(monkeypatch):
     monkeypatch.setattr(gw, "OPENROUTER_API_KEY", "test-only")
-    monkeypatch.setattr(site, "current_identity", lambda token: {"id": "test-user"})
+    monkeypatch.setattr(site, "current_identity", lambda token: {"id": "test-user", "gender": "female"})
 
     async def fake_transcribe(info):
         assert info.language == "he"
@@ -39,7 +39,7 @@ def test_embedded_transcription_invokes_local_helper(monkeypatch):
 
 def test_embedded_structuring_invokes_local_helper(monkeypatch):
     monkeypatch.setattr(gw, "openai_client", object())
-    monkeypatch.setattr(site, "current_identity", lambda token: {"id": "test-user"})
+    monkeypatch.setattr(site, "current_identity", lambda token: {"id": "test-user", "gender": "female"})
     monkeypatch.setattr(site, "current_site_mode", lambda: "general")
 
     async def fake_structure(info):

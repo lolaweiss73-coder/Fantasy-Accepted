@@ -203,9 +203,7 @@ async def health():
     }
 
 
-@app.post("/transcribe")
-async def transcribe(info: TranscriptionRequest, authorization: str | None = Header(default=None)):
-    require_service_token(authorization)
+async def transcribe_internal(info: TranscriptionRequest):
     if not OPENROUTER_API_KEY:
         raise HTTPException(503, "Transcription provider is not configured")
 
@@ -240,9 +238,13 @@ async def transcribe(info: TranscriptionRequest, authorization: str | None = Hea
     return {"text": transcript}
 
 
-@app.post("/speak")
-async def speak(info: SpeechRequest, authorization: str | None = Header(default=None)):
+@app.post("/transcribe")
+async def transcribe(info: TranscriptionRequest, authorization: str | None = Header(default=None)):
     require_service_token(authorization)
+    return await transcribe_internal(info)
+
+
+async def speech_internal(info: SpeechRequest):
     if not OPENAI_API_KEY:
         raise HTTPException(503, "OpenAI speech is not configured")
 
@@ -275,9 +277,13 @@ async def speak(info: SpeechRequest, authorization: str | None = Header(default=
     )
 
 
-@app.post("/structure")
-async def structure(info: StructureRequest, authorization: str | None = Header(default=None)):
+@app.post("/speak")
+async def speak(info: SpeechRequest, authorization: str | None = Header(default=None)):
     require_service_token(authorization)
+    return await speech_internal(info)
+
+
+async def structure_internal(info: StructureRequest):
 
     if MINOR_TERM_PATTERN.search(info.text):
         return {
@@ -314,3 +320,9 @@ async def structure(info: StructureRequest, authorization: str | None = Header(d
         raise HTTPException(502, "Morin providers are temporarily unavailable")
 
     return normalize_result(result, info.text, info.track_hint)
+
+
+@app.post("/structure")
+async def structure(info: StructureRequest, authorization: str | None = Header(default=None)):
+    require_service_token(authorization)
+    return await structure_internal(info)

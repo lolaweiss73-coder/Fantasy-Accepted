@@ -3293,15 +3293,21 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
     gateway_url = os.environ.get("MORIN_GATEWAY_URL", "").rstrip("/")
     gateway_token = os.environ.get("MORIN_GATEWAY_TOKEN", "")
 
+    result = None
     if morin_inprocess.openai_client or morin_inprocess.OPENROUTER_API_KEY:
-        result = await morin_inprocess.structure_internal(
-            morin_inprocess.StructureRequest(
-                text=info.text,
-                previous_questions=info.previous_questions,
-                track_hint=current_site_mode(),
+        try:
+            result = await morin_inprocess.structure_internal(
+                morin_inprocess.StructureRequest(
+                    text=info.text,
+                    previous_questions=info.previous_questions,
+                    track_hint=current_site_mode(),
+                )
             )
-        )
-    elif gateway_url and gateway_token:
+        except HTTPException:
+            if not gateway_url or not gateway_token:
+                raise
+
+    if result is None and gateway_url and gateway_token:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{gateway_url}/structure",
@@ -3314,7 +3320,7 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
         if response.status_code >= 400:
             raise HTTPException(502, "מורין לא הצליחה לעבד את הבקשה כרגע")
         result = response.json()
-    else:
+    elif result is None:
         api_key = os.environ.get("OPENROUTER_API_KEY")
         model = os.environ.get("MORIN_MODEL")
         if not api_key or not model:

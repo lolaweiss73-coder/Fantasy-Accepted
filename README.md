@@ -100,3 +100,21 @@ A `render.yaml` baseline is included. Before real users are admitted, configure 
 - Mutual final acceptance state for a fantasy after participants are chosen.
 
 The `Accepted` state must never be treated as irreversible consent to a meeting; participants can withdraw at any stage.
+
+
+## Embedded Morin (single-service deployment)
+
+The website now imports Morin's speech, transcription and structuring handlers from `morin_gateway.py` and invokes them **in-process** when the required provider credentials exist in the *website's* environment. The public endpoints remain `/api/morin/speak`, `/api/morin/transcribe` and `/api/morin/structure`; site authentication and adult-content validation still run first. No separate public Morin gateway domain is required after migration.
+
+Required website variables for complete embedded functionality:
+- `OPENAI_API_KEY` for speech (TTS) and the OpenAI-first structured response.
+- `OPENROUTER_API_KEY` (or `OPEN_ROUTER_API_KEY`) for transcription and the fallback structured response.
+- Optional `OPENAI_MODEL`, `OPENROUTER_MORIN_MODEL`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`, `OPENROUTER_TRANSCRIBE_MODEL`. Existing gateway defaults apply.
+
+Migration safety:
+1. Keep `MORIN_GATEWAY_URL` and `MORIN_GATEWAY_TOKEN` on the website during migration. When local provider credentials are absent (as they currently are on the website), the existing gateway remains the fallback.
+2. Add the necessary secrets securely to the **Fantasy Accepted website service** in Railway. Because the existing gateway service is in a **different Railway project**, cross-service reference variables cannot copy these secrets. Never commit or reveal secret values.
+3. Check `/api/health` for `morin_embedded: true`. Then test signed-in speech, transcription and wish structuring, including the separate adult/general tracks. Also validate the provider's API balance; a configured key does not guarantee paid endpoints will succeed.
+4. Only after all checks pass, clear legacy gateway URL/token from the website and then remove the old Railway gateway service. **Removing the old service is a separate, destructive infrastructure operation, not part of this code change**.
+
+The separate `morin_gateway.py` server entry point is preserved for rollback; its bearer-token-protected HTTP routes continue to work unchanged.

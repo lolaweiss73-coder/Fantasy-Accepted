@@ -58,8 +58,10 @@ def test_embedded_structuring_invokes_local_helper(monkeypatch):
         return {
             "title": "Piano lesson", "description": info.text, "mode": "meeting",
             "tags": ["music"], "roles": [], "blocked_reason": None,
-            "kind": "general", "morin_response": "I can help",
-            "clarifying_questions": [], "ready_to_draft": True,
+            "kind": "general", "morin_response": "אני יכולה לעזור",
+            "morin_response_en": "I can help",
+            "clarifying_questions": [], "clarifying_questions_en": [],
+            "ready_to_draft": True,
             "owner_participates": True,
         }
 
@@ -70,6 +72,9 @@ def test_embedded_structuring_invokes_local_helper(monkeypatch):
     ))
     assert result["title"] == "Piano lesson"
     assert result["kind"] == "general"
+    assert result["morin_response"] == "אני יכולה לעזור"
+    assert result["morin_response_en"] == "I can help"
+    assert result["clarifying_questions_en"] == []
 
 
 def test_gateway_auth_remains_required(monkeypatch):
@@ -81,3 +86,18 @@ def test_gateway_auth_remains_required(monkeypatch):
     else:
         raise AssertionError("Missing auth must be rejected")
     gw.require_service_token("Bearer internal-secret")
+
+
+def test_voice_localization_preserves_caption_question_alignment():
+    result = gw.normalize_result({
+        "kind": "general",
+        "morin_response": "אשמח לעזור",
+        "morin_response_en": "I would love to help",
+        "clarifying_questions": ["מתי?", "היכן?"],
+        "clarifying_questions_en": ["When?", "Where?"],
+        "roles": [],
+    }, original_text="משאלה חדשה", track_hint="general")
+    assert result["morin_response"] == "אשמח לעזור"
+    assert result["morin_response_en"] == "I would love to help"
+    assert result["clarifying_questions"] == ["מתי?", "היכן?"]
+    assert result["clarifying_questions_en"] == ["When?", "Where?"]

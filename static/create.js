@@ -82,6 +82,7 @@ $('#morinDraftBtn').onclick=()=>openModal('morinModal');
 const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 let morinRecognition=null;
 let morinWantsListening=false;
+let morinResumeAfterEdit=false;
 let morinRecognitionActive=false;
 let morinRestartTimer=null;
 let morinBaseText='';
@@ -90,7 +91,9 @@ let morinLastInterim='';
 let morinPendingQuestions=[];
 
 function resetMorinVoiceState({clearText=false}={}){
+  stopMorinReplyAudio();
   morinWantsListening=false;
+  morinResumeAfterEdit=false;
   clearTimeout(morinRestartTimer);
   morinRestartTimer=null;
   morinSegmentFinals.clear();
@@ -240,11 +243,13 @@ function makeRecognition(){
   }
 
   r.onstart=()=>{
+    if(morinRecognition!==r || !morinWantsListening){try{r.abort()}catch{};return;}
     morinRecognitionActive=true;
     setSpeechVisual(true,'מורין מקשיבה… אפשר לדבר ולהשהות');
   };
 
   r.onresult=(event)=>{
+    if(morinRecognition!==r || !morinWantsListening)return;
     let interim='';
     for(let i=event.resultIndex;i<event.results.length;i++){
       const transcript=cleanSpeech(event.results[i][0]?.transcript);
@@ -278,6 +283,7 @@ function makeRecognition(){
   };
 
   r.onend=()=>{
+    if(morinRecognition!==r)return;
     morinRecognitionActive=false;
     commitSegment();
     if(!morinWantsListening){
@@ -300,6 +306,29 @@ function makeRecognition(){
     },180);
   };
   return r;
+}
+
+$('#morinText').addEventListener('focus',()=>{
+  if(!morinWantsListening)return;
+  morinResumeAfterEdit=true;
+  morinWantsListening=false;
+  clearTimeout(morinRestartTimer);
+  morinRestartTimer=null;
+  morinBaseText=cleanSpeech($('#morinText').value);
+  morinSegmentFinals.clear();
+  morinLastInterim='';
+  if(morinRecognitionActive && morinRecognition){
+    try{morinRecognition.abort()}catch{}
+  }
+  setSpeechVisual(false,'ההכתבה מושהית בזמן עריכה.');
+});
+$('#morinText').addEventListener('blur',()=>{
+  if(!morinResumeAfterEdit)return;
+  morinResumeAfterEdit=false;
+  if(!morinWantsListening && SpeechRecognitionAPI)$('#morinMicBtn').click();
+});
+for(const id of ['morinMicBtn','morinResetBtn','morinStructureBtn']){
+  $('#'+id)?.addEventListener('pointerdown',()=>{morinResumeAfterEdit=false;},true);
 }
 
 $('#morinText').addEventListener('input',()=>{
@@ -330,6 +359,7 @@ if(!SpeechRecognitionAPI){
   $('#morinMicStatus').textContent='הכתבה קולית אינה זמינה בדפדפן הזה — אפשר לכתוב כאן.';
 }else{
   $('#morinMicBtn').onclick=()=>{
+    morinResumeAfterEdit=false;
     if(morinWantsListening){
       morinWantsListening=false;
       clearTimeout(morinRestartTimer);
@@ -355,24 +385,87 @@ if(!SpeechRecognitionAPI){
   };
 }
 
-function speakMorinDynamic(text){
-  const value=String(text||'').trim();
-  if(!value || !('speechSynthesis' in window) || !window.SpeechSynthesisUtterance)return;
+let morinVoiceGeneration=0;
+let morinVoiceAudio=null;
+let morinVoiceFinish=null;
+
+function stopMorinReplyAudio(){
+  morinVoiceGeneration++;
+  if(morinVoiceFinish){morinVoiceFinish();morinVoiceFinish=null;}
+  if(morinVoiceAudio){
+    try{morinVoiceAudio.pause()}catch{}
+    morinVoiceAudio=null;
+  }
+  try{window.speechSynthesis?.cancel()}catch{}
+  if(typeof hideSubtitle==='function')hideSubtitle();
+}
+
+async function playEnglishMorinSegment(english,caption,generation){
+  if(generation!==morinVoiceGeneration)return;
+  if(typeof showSubtitle==='function')showSubtitle(caption);
+  let objectURL=null;
   try{
-    window.speechSynthesis.cancel();
-    const utterance=new SpeechSynthesisUtterance(value);
-    const hebrew=/[\u0590-\u05FF]/.test(value);
-    utterance.lang=hebrew?'he-IL':'en-US';
-    utterance.rate=0.98;
-    utterance.pitch=1;
-    const voices=window.speechSynthesis.getVoices?.()||[];
-    const wanted=voices.find(v=>String(v.lang||'').toLowerCase().startsWith(hebrew?'he':'en'));
-    if(wanted)utterance.voice=wanted;
-    window.speechSynthesis.speak(utterance);
-  }catch{}
+    const response=await fetch(`${API_BASE}/api/morin/speak`,{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({text:english})
+    });
+    if(!response.ok)throw new Error('Morin speech is unavailable');
+    objectURL=URL.createObjectURL(await response.blob());
+    if(generation!==morinVoiceGeneration)return;
+    await new Promise((resolve,reject)=>{
+      const audio=new Audio(objectURL);
+      morinVoiceAudio=audio;
+      const done=()=>{
+        if(morinVoiceFinish===done)morinVoiceFinish=null;
+        morinVoiceAudio=null;
+        resolve();
+      };
+      morinVoiceFinish=done;
+      audio.onended=done;
+      audio.onerror=()=>{done();reject(new Error('Voice playback failed'));};
+      audio.play().catch(error=>{done();reject(error);});
+    });
+  }catch{
+    if(generation!==morinVoiceGeneration || !window.speechSynthesis || !window.SpeechSynthesisUtterance)return;
+    await new Promise(resolve=>{
+      const utterance=new SpeechSynthesisUtterance(english);
+      utterance.lang='en-US';
+      utterance.rate=.98;
+      const voices=window.speechSynthesis.getVoices?.()||[];
+      const voice=voices.find(v=>String(v.lang||'').toLowerCase().startsWith('en'));
+      if(voice)utterance.voice=voice;
+      const done=()=>{if(morinVoiceFinish===done)morinVoiceFinish=null;resolve();};
+      morinVoiceFinish=done;
+      utterance.onend=done;
+      utterance.onerror=done;
+      try{window.speechSynthesis.speak(utterance)}catch{done()}
+    });
+  }finally{
+    if(objectURL)URL.revokeObjectURL(objectURL);
+  }
+}
+
+async function speakMorinDynamic(segments){
+  stopMorinReplyAudio();
+  const generation=morinVoiceGeneration;
+  for(const item of segments){
+    if(generation!==morinVoiceGeneration)break;
+    const caption=String(item.caption||'').trim();
+    let english=String(item.en||'').trim();
+    if(!english && /^[\x00-\x7F]*$/.test(caption))english=caption;
+    // Never read Hebrew in the English voice, and never fabricate a translation.
+    if(!english || /[\u0590-\u05FF]/.test(english))continue;
+    await playEnglishMorinSegment(english,caption,generation);
+  }
+  if(generation===morinVoiceGeneration && typeof hideSubtitle==='function')hideSubtitle();
 }
 
 $('#morinStructureBtn').onclick=async()=>{
+  morinResumeAfterEdit=false;
+  morinWantsListening=false;
+  clearTimeout(morinRestartTimer);
+  if(morinRecognitionActive && morinRecognition){try{morinRecognition.stop()}catch{}}
   const text=$('#morinText').value.trim();
   if(text.length<10){$('#morinStatus').textContent='ספרו לי קצת יותר';return}
   $('#morinStatus').textContent='מורין חושבת על מה שסיפרתם…';
@@ -409,7 +502,10 @@ $('#morinStructureBtn').onclick=async()=>{
       morinPendingQuestions=questions.slice(0,2);
       $('#morinStatus').textContent='אפשר לענות בקול או בכתב, ואז לבדוק שוב.';
       $('#morinStructureBtn').textContent='עניתי — בדקי שוב';
-      speakMorinDynamic([reply,...questions].filter(Boolean).join(' '));
+      speakMorinDynamic([
+        {en:result.morin_response_en,caption:reply},
+        ...questions.map((question,index)=>({en:result.clarifying_questions_en?.[index],caption:question}))
+      ]);
       return;
     }
 
@@ -434,7 +530,7 @@ $('#morinStructureBtn').onclick=async()=>{
     const structuredNoun=(result.kind||state.track)==='general'?'המשאלה':'הפנטזיה';
     review.textContent=reply||`מורין הבינה את ${structuredNoun} והכינה טיוטה לבדיקה.`;
     review.classList.remove('hidden');
-    speakMorinDynamic(reply||review.textContent);
+    speakMorinDynamic([{en:result.morin_response_en,caption:reply||review.textContent}]);
 
     closeModal('morinModal');
     showView('create');

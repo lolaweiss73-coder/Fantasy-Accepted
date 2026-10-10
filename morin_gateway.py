@@ -45,7 +45,10 @@ roles: array of EXTERNAL people still needed, with name, description, capacity, 
 owner_participates: boolean
 kind: one of general, adult
 morin_response: a concise, warm response in the user's language that reflects what you understood without embellishing it
-clarifying_questions: array of at most 2 concise questions
+morin_response_en: faithful, natural spoken English translation of morin_response; keep the meaning identical and NEVER include Hebrew
+clarifying_questions: array of at most 2 concise questions in the user's language
+clarifying_questions_en: an English translation of each clarifying question, aligned one-to-one in the same order
+The text fields remain in the user's language. All *_en fields are for English-only voice narration with localized on-screen subtitles.
 ready_to_draft: boolean
 blocked_reason: string or null
 
@@ -178,6 +181,11 @@ def normalize_result(result: dict, original_text: str, track_hint: str | None = 
     result["clarifying_questions"] = [str(q).strip() for q in questions if str(q).strip()][:2]
     result["ready_to_draft"] = bool(result.get("ready_to_draft", not result["clarifying_questions"])) and not result["clarifying_questions"]
     result["morin_response"] = str(result.get("morin_response") or "").strip()
+    result["morin_response_en"] = str(result.get("morin_response_en") or "").strip()
+    english_questions = result.get("clarifying_questions_en") or []
+    if not isinstance(english_questions, list):
+        english_questions = []
+    result["clarifying_questions_en"] = [str(q).strip() for q in english_questions][:len(result["clarifying_questions"])]
     result["roles"] = clean_roles
     result.setdefault("blocked_reason", None)
     result.setdefault("title", "")

@@ -404,3 +404,21 @@ html[dir="ltr"] .announcement-set{direction:ltr}
   .copy-field{grid-template-columns:1fr}
   .copy-field button{width:100%}
 }
+
+
+/* Mobile viewport containment (including Xiaomi/older Chromium RTL layouts).
+   Fixed off-canvas navigation and wide announcement ticker must never expand
+   the document's horizontal scrollable area. */
+@media(max-width:900px){
+  html,body{width:100%;max-width:100%;overflow-x:clip}
+  .app-shell,.content,.view,.form-card,.modal-card{min-width:0;max-width:100%}
+  .sidebar:not(.open){visibility:hidden;pointer-events:none}
+  .sidebar.open{visibility:visible;pointer-events:auto}
+  .topbar .brand-wrap,.topbar .top-actions{min-width:0}
+  .topbar .top-actions{flex-shrink:1;flex-wrap:wrap;justify-content:flex-end}
+  .content h1,.content h2,.content h3,.content p,
+  .form-card,.modal-card,.notification-copy{overflow-wrap:anywhere}
+}
+@supports not (overflow:clip){
+  @media(max-width:900px){html,body{overflow-x:hidden}}
+}

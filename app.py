@@ -3332,6 +3332,9 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "If the text appears to request sexual involvement of a minor, return JSON with blocked_reason and no fantasy fields. "
             "The service supports both general wishes and adult fantasies. Return strict JSON only with keys: title, description, mode, tags, roles, blocked_reason, morin_response, clarifying_questions, ready_to_draft, owner_participates, kind. "
             "roles is an array of external people still needed, each {name, description, capacity, min_age, max_age, allowed_genders, region}. "
+            "morin_response is a short friendly reply in the user's language; morin_response_en is its faithful, natural English spoken translation. "
+            "clarifying_questions_en is a list of faithful English translations of clarifying_questions in the same order. "
+            "All on-screen copy stays in the user's language; voice narration uses only *_en fields. "
             "Do not create a role for the fantasy creator. Set owner_participates true if the creator is part of the fantasy, false if they are only arranging it for others. "
             "kind must be general for non-sexual wishes and adult for sexual/adult fantasies. Respect track_hint when supplied unless the content clearly belongs in the adult track. "
             "Ask at most two clarifying questions, and only when an ambiguity materially affects matching. Use null or empty arrays for unknown values; min_age must never be below 18."
@@ -3391,6 +3394,11 @@ async def morin_structure(info: MorinStructureRequest, authorization: str | None
             "ready_to_draft": False,
         }
     result["morin_response"] = str(result.get("morin_response") or "").strip()
+    result["morin_response_en"] = str(result.get("morin_response_en") or "").strip()
+    english_questions = result.get("clarifying_questions_en") or []
+    if not isinstance(english_questions, list):
+        english_questions = []
+    result["clarifying_questions_en"] = [str(q).strip() for q in english_questions][:len(result["clarifying_questions"])]
 
     # The creator's gender is already known from the profile, so avoid clumsy
     # slash-forms such as "מחפש/ת" in the generated title.
